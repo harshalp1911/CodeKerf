@@ -1,0 +1,29 @@
+version: '3.8'
+services:
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - server
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile   # you’ll need a Dockerfile for your Express app
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/online-code-editor
+    ports:
+      - "5001:5001"
+    depends_on:
+      - mongo
+
+  mongo:
+    image: mongo:6.0
+    volumes:
+      - mongo-data:/data/db
+
+volumes:
+  mongo-data:
