@@ -33,7 +33,7 @@ const sessionSchema = new mongoose.Schema({
 });
 sessionSchema.index(
   { updatedAt: 1 },
-  { expireAfterSeconds: 30 * 24 * 60 * 60 } // expire after 30 days
+  { expireAfterSeconds: 30 * 24 * 60 * 60 }
 );
 const Session = mongoose.model('Session', sessionSchema);
 
@@ -142,6 +142,11 @@ io.on('connection', (socket) => {
       { language, updatedAt: new Date() }
     );
     socket.to(sessionId).emit('languageUpdate', language);
+  });
+
+  // ← NEW: rebroadcast run results to others
+  socket.on('runResult', ({ sessionId, stdout, stderr }) => {
+    socket.to(sessionId).emit('runResult', { stdout, stderr });
   });
 
   socket.on('disconnect', () => {
