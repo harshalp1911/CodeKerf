@@ -11,6 +11,11 @@ import { v4 as uuidv4 } from 'uuid';
 import './App.css';
 
 function App() {
+  // derive the API host from the browser URL
+  const API_HOST = window.location.hostname;
+  const API_PORT = 5001;
+  const API_BASE = `http://${API_HOST}:${API_PORT}`;
+
   // 1. Session ID
   const [sessionId] = useState(() => {
     const params = new URLSearchParams(window.location.search);
@@ -30,9 +35,9 @@ function App() {
   // 3. Socket ref
   const socketRef = useRef(null);
 
-  // 4. Connect & join
+  // 4. Connect & join session
   useEffect(() => {
-    const socket = io('http://localhost:5001');
+    const socket = io(`${API_BASE}`, { path: '/socket.io' });
     socketRef.current = socket;
 
     socket.emit('joinSession', sessionId);
@@ -50,25 +55,20 @@ function App() {
       setLanguage(newLang);
     });
 
-    // ← NEW: listen for run results
-    socket.on('runResult', ({ stdout, stderr }) => {
-      setOutput(stderr || stdout);
-    });
-
     return () => socket.disconnect();
   }, [sessionId]);
 
-  // 5. Language extension
+  // 5. Choose CodeMirror extension
   const getLanguageExtension = () => {
     switch (language) {
-      case 'cpp': return cpp();
+      case 'cpp':    return cpp();
       case 'python': return python();
-      case 'java': return java();
-      default: return [];
+      case 'java':   return java();
+      default:       return [];
     }
   };
 
-  // 6. Handlers
+  // 6. Handlers for code & language changes
   const handleCodeChange = (value) => {
     setCode(value);
     socketRef.current.emit('codeChange', { sessionId, code: value });
@@ -80,13 +80,15 @@ function App() {
     socketRef.current.emit('languageChange', { sessionId, language: lang });
   };
 
-  // 7. SAVE
+  // 7. SAVE code to file
   const onSave = () => {
-    const ext = language === 'cpp' ? 'cpp' : language === 'python' ? 'py' : 'java';
+    const ext = language === 'cpp' ? 'cpp'
+              : language === 'python' ? 'py'
+              : 'java';
     const blob = new Blob([code], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
     a.download = `code.${ext}`;
     document.body.appendChild(a);
     a.click();
@@ -94,34 +96,31 @@ function App() {
     URL.revokeObjectURL(url);
   };
 
-  // 8. RUN + emit runResult
+  // 8. RUN code via REST + display output
   const onRun = async () => {
     setOutput('Running...');
     try {
-      const res = await fetch('http://localhost:5001/api/run', {
+      const res = await fetch(`${API_BASE}/api/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ language, code, stdin })
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || res.statusText);
+      }
       const { stdout, stderr } = await res.json();
-
-      // update local output
       setOutput(stderr || stdout);
-
-      // broadcast to other clients
-      socketRef.current.emit('runResult', { sessionId, stdout, stderr });
     } catch (err) {
       setOutput(`Error: ${err.message}`);
     }
   };
 
-  // 9. SHARE
+  // 9. SHARE link
   const onShare = useCallback(() => {
-    const url = window.location.href;
-    navigator.clipboard.writeText(url)
-      .then(() => alert('Share link copied to clipboard!'))
-      .catch((err) => alert('Failed to copy link: ' + err));
+    navigator.clipboard.writeText(window.location.href)
+      .then(() => alert('Share link copied!'))
+      .catch((e) => alert('Copy failed: ' + e));
   }, []);
 
   return (
