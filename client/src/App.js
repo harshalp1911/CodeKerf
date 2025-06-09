@@ -10,12 +10,12 @@ import { v4 as uuidv4 } from 'uuid';
 
 import './App.css';
 
-function App() {
-  // derive the API host from the browser URL
-  const API_HOST = window.location.hostname;
-  const API_PORT = 5001;
-  const API_BASE = `http://${API_HOST}:${API_PORT}`;
+// Derive API base URL (uses env var if provided, otherwise uses current host)
+const API_BASE =
+  process.env.REACT_APP_SERVER_URL ||
+  `${window.location.protocol}//${window.location.hostname}:5001`;
 
+function App() {
   // 1. Session ID
   const [sessionId] = useState(() => {
     const params = new URLSearchParams(window.location.search);
@@ -37,7 +37,7 @@ function App() {
 
   // 4. Connect & join session
   useEffect(() => {
-    const socket = io(`${API_BASE}`, { path: '/socket.io' });
+    const socket = io(API_BASE);
     socketRef.current = socket;
 
     socket.emit('joinSession', sessionId);
@@ -47,18 +47,18 @@ function App() {
       setLanguage(language);
     });
 
-    socket.on('codeUpdate', (newCode) => {
-      setCode(newCode);
-    });
+    socket.on('codeUpdate', (newCode) => setCode(newCode));
+    socket.on('languageUpdate', (newLang) => setLanguage(newLang));
 
-    socket.on('languageUpdate', (newLang) => {
-      setLanguage(newLang);
+    // Listen for run results
+    socket.on('runResult', ({ stdout, stderr }) => {
+      setOutput(stderr || stdout);
     });
 
     return () => socket.disconnect();
   }, [sessionId]);
 
-  // 5. Choose CodeMirror extension
+  // 5. Language extension
   const getLanguageExtension = () => {
     switch (language) {
       case 'cpp':    return cpp();
@@ -68,7 +68,7 @@ function App() {
     }
   };
 
-  // 6. Handlers for code & language changes
+  // 6. Handlers
   const handleCodeChange = (value) => {
     setCode(value);
     socketRef.current.emit('codeChange', { sessionId, code: value });
@@ -80,11 +80,9 @@ function App() {
     socketRef.current.emit('languageChange', { sessionId, language: lang });
   };
 
-  // 7. SAVE code to file
+  // 7. SAVE
   const onSave = () => {
-    const ext = language === 'cpp' ? 'cpp'
-              : language === 'python' ? 'py'
-              : 'java';
+    const ext = language === 'cpp' ? 'cpp' : language === 'python' ? 'py' : 'java';
     const blob = new Blob([code], { type: 'text/plain' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -96,7 +94,7 @@ function App() {
     URL.revokeObjectURL(url);
   };
 
-  // 8. RUN code via REST + display output
+  // 8. RUN + emit runResult
   const onRun = async () => {
     setOutput('Running...');
     try {
@@ -111,16 +109,36 @@ function App() {
       }
       const { stdout, stderr } = await res.json();
       setOutput(stderr || stdout);
+      socketRef.current.emit('runResult', { sessionId, stdout, stderr });
     } catch (err) {
       setOutput(`Error: ${err.message}`);
     }
   };
 
-  // 9. SHARE link
+  // 9. SHARE
   const onShare = useCallback(() => {
-    navigator.clipboard.writeText(window.location.href)
-      .then(() => alert('Share link copied!'))
-      .catch((e) => alert('Copy failed: ' + e));
+    const url = window.location.href;
+    navigator.clipboard.writeText(url)
+      .then(() => alert('Share link copied to clipboard!'))
+      .catch(() => {
+        const textArea = document.createElement('textarea');
+        textArea.value = url;
+        textArea.style.position = 'fixed';
+        textArea.style.top = '-1000px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        try {
+          if (document.execCommand('copy')) {
+            alert('Share link copied to clipboard!');
+          } else {
+            throw new Error('execCommand failed');
+          }
+        } catch {
+          window.prompt('Copy this link:', url);
+        }
+        document.body.removeChild(textArea);
+      });
   }, []);
 
   return (
