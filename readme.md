@@ -26,6 +26,16 @@
    docker compose up -d --build
 3. Open your browser at `http://localhost:3000`
 
+## Features
+🖋 Real-time collaborative editing `(Socket.io)`
+
+💻 Multi-language support with syntax highlighting `(CodeMirror)`
+
+🐳 Secure, isolated `Docker runners` with resource limits
+
+📦 Persistent sessions stored in `MongoDB`
+
+🔗 One-click shareable session `URLs`
 
 ## Usage
 - Open the app at `http://localhost:3000`
@@ -40,16 +50,6 @@
 
 - Click `SHARE` to copy a session URL—anyone opening it joins the same live workspace.
 
-## Features
-🖋 Real-time collaborative editing `(Socket.io)`
-
-💻 Multi-language support with syntax highlighting `(CodeMirror)`
-
-🐳 Secure, isolated `Docker runners` with resource limits
-
-📦 Persistent sessions stored in `MongoDB`
-
-🔗 One-click shareable session `URLs`
 
 ##  🛠️ Tech Stack
 

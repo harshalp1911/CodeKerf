@@ -1,5 +1,4 @@
 // client/src/App.js
-
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { cpp } from '@codemirror/lang-cpp';
@@ -9,11 +8,6 @@ import { io } from 'socket.io-client';
 import { v4 as uuidv4 } from 'uuid';
 
 import './App.css';
-
-// Derive API base URL (uses env var if provided, otherwise uses current host)
-const API_BASE =
-  process.env.REACT_APP_SERVER_URL ||
-  `${window.location.protocol}//${window.location.hostname}:5001`;
 
 function App() {
   // 1. Session ID
@@ -28,16 +22,17 @@ function App() {
 
   // 2. State
   const [language, setLanguage] = useState('cpp');
-  const [code, setCode] = useState('');
-  const [stdin, setStdin] = useState('');
-  const [output, setOutput] = useState('');
+  const [code, setCode]         = useState('');
+  const [stdin, setStdin]       = useState('');
+  const [output, setOutput]     = useState('');
 
   // 3. Socket ref
   const socketRef = useRef(null);
 
   // 4. Connect & join session
   useEffect(() => {
-    const socket = io(API_BASE);
+    // no URL ⇒ connects to same‐origin + proxy ⇒ → http://localhost:5001 in dev
+    const socket = io();  
     socketRef.current = socket;
 
     socket.emit('joinSession', sessionId);
@@ -47,15 +42,13 @@ function App() {
       setLanguage(language);
     });
 
-    socket.on('codeUpdate', (newCode) => setCode(newCode));
-    socket.on('languageUpdate', (newLang) => setLanguage(newLang));
-
-    // Listen for run results
-    socket.on('runResult', ({ stdout, stderr }) => {
+    socket.on('codeUpdate',    (newCode) => setCode(newCode));
+    socket.on('languageUpdate',(newLang) => setLanguage(newLang));
+    socket.on('runResult',     ({ stdout, stderr }) => {
       setOutput(stderr || stdout);
     });
 
-    return () => socket.disconnect();
+    return () => { socket.disconnect(); };
   }, [sessionId]);
 
   // 5. Language extension
@@ -82,7 +75,12 @@ function App() {
 
   // 7. SAVE
   const onSave = () => {
-    const ext = language === 'cpp' ? 'cpp' : language === 'python' ? 'py' : 'java';
+    const ext = language === 'cpp'
+      ? 'cpp'
+      : language === 'python'
+      ? 'py'
+      : 'java';
+
     const blob = new Blob([code], { type: 'text/plain' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -94,20 +92,18 @@ function App() {
     URL.revokeObjectURL(url);
   };
 
-  // 8. RUN + emit runResult
+  // 8. RUN + broadcast
   const onRun = async () => {
     setOutput('Running...');
     try {
-      const res = await fetch(`${API_BASE}/api/run`, {
+      const res = await fetch(`/api/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ language, code, stdin })
       });
-      if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(txt || res.statusText);
-      }
+      if (!res.ok) throw new Error(await res.text());
       const { stdout, stderr } = await res.json();
+
       setOutput(stderr || stdout);
       socketRef.current.emit('runResult', { sessionId, stdout, stderr });
     } catch (err) {
@@ -119,36 +115,27 @@ function App() {
   const onShare = useCallback(() => {
     const url = window.location.href;
     navigator.clipboard.writeText(url)
-      .then(() => alert('Share link copied to clipboard!'))
+      .then(() => alert('Share link copied!'))
       .catch(() => {
-        const textArea = document.createElement('textarea');
-        textArea.value = url;
-        textArea.style.position = 'fixed';
-        textArea.style.top = '-1000px';
-        document.body.appendChild(textArea);
-        textArea.focus();
-        textArea.select();
-        try {
-          if (document.execCommand('copy')) {
-            alert('Share link copied to clipboard!');
-          } else {
-            throw new Error('execCommand failed');
-          }
-        } catch {
-          window.prompt('Copy this link:', url);
-        }
-        document.body.removeChild(textArea);
+        // fallback
+        const ta = document.createElement('textarea');
+        ta.value = url;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); alert('Share link copied!'); }
+        catch { window.prompt('Copy this link:', url); }
+        document.body.removeChild(ta);
       });
   }, []);
 
   return (
     <div className="App">
       <header className="header">
-        <h1 className="app-title">Online Code Editor</h1>
+        <h1 className="app-title">CodeKerf</h1>
         <div className="nav-buttons">
-          <button className="run-button" onClick={onRun}>RUN</button>
+          <button className="run-button"   onClick={onRun}>RUN</button>
           <button className="share-button" onClick={onShare}>SHARE</button>
-          <button className="save-button" onClick={onSave}>SAVE</button>
+          <button className="save-button"  onClick={onSave}>SAVE</button>
         </div>
       </header>
 
@@ -157,7 +144,6 @@ function App() {
           <label htmlFor="lang-select" className="lang-label">Language:</label>
           <select
             id="lang-select"
-            className="lang-select"
             value={language}
             onChange={handleLanguageChange}
           >
@@ -172,7 +158,6 @@ function App() {
               height="100%"
               extensions={[getLanguageExtension()]}
               onChange={handleCodeChange}
-              theme="light"
               basicSetup={{
                 lineNumbers: true,
                 highlightActiveLine: true,
