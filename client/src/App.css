@@ -1,174 +1,92 @@
 /* client/src/App.css */
-
-/* Reset defaults */
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+/* Reset & variables */
+:root {
+  --bg:      #ffffff;
+  --text:    #333333;
+  --header:  #f5f5f5;
+  --pane:    #ffffff;
+  --outbg:   #f0f0f0;
+  --btn:     #333333;
+  --btn-hover: #555555;
+  --border:  #ddd;
+}
+.App.dark {
+  --bg:      #1e1e1e;
+  --text:    #dddddd;
+  --header:  #2e2e2e;
+  --pane:    #252526;
+  --outbg:   #1e1e1e;
+  --btn:     #555555;
+  --btn-hover: #777777;
+  --border:  #444444;
 }
 
-/* Overall app container fills viewport */
-.App {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  font-family: Arial, sans-serif;
-}
+/* Global */
+* { margin:0; padding:0; box-sizing:border-box; }
+body, #root, .App { height:100%; font-family:Arial,sans-serif; background:var(--bg); color:var(--text); }
 
-/* ===== Header (Navbar) ===== */
+/* Header */
 .header {
-  position: relative;
-  display: flex;
-  align-items: center;
-  height: 56px;
-  padding: 0 16px;
-  background-color: #f5f5f5;
-  border-bottom: 1px solid #ddd;
+  display:flex; align-items:center; justify-content:space-between;
+  height:56px; padding:0 16px; background:var(--header); border-bottom:1px solid var(--border);
+}
+.app-title { font-size:24px; color:var(--text); }
+.nav-buttons { display:flex; align-items:center; }
+.theme-toggle {
+  background:transparent; border:none; font-size:18px; cursor:pointer; margin-right:8px;
 }
 
-.app-title {
-  font-size: 24px;
-  color: #333;
-  z-index: 1;
+/* Buttons */
+.run-button, .save-button, .share-button {
+  width:60px; padding:6px 0; margin:0 6px; font-size:14px; font-weight:bold;
+  color:#fff; background:var(--btn); border:none; border-radius:4px; cursor:pointer;
+  transition:background 0.2s;
+}
+.run-button:hover, .save-button:hover, .share-button:hover {
+  background:var(--btn-hover);
 }
 
-.nav-buttons {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-}
+/* Layout */
+.editor-container { display:flex; height:calc(100% - 56px); }
 
-.run-button,
-.save-button {
-  width: 60px;
-  padding: 6px 0;
-  margin: 0 6px;
-  font-size: 14px;
-  font-weight: bold;
-  color: #fff;
-  background-color: #333;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.run-button:hover,
-.save-button:hover {
-  background-color: #555;
-}
-
-/* ===== Main Editor/Output Container ===== */
-.editor-container {
-  flex: 1;
-  display: flex;
-}
-
-/* ===== Left Pane ===== */
+/* Left pane */
 .left-pane {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  border-right: 1px solid #ddd;
-  padding: 8px;
-  background-color: #fff;
+  flex:1; display:flex; flex-direction:column; border-right:1px solid var(--border);
+  padding:8px; background:var(--pane);
 }
-
-.lang-label {
-  font-size: 14px;
-  color: #333;
-  margin-bottom: 4px;
-  display: block;
-}
-
+.lang-label { margin-bottom:4px; }
 .lang-select {
-  width: 150px;
-  padding: 4px;
-  font-size: 14px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  margin-bottom: 8px;
-  outline: none;
-  background-color: #fff;
-  color: #333;
+  width:150px; padding:4px; margin-bottom:8px; font-size:14px;
+  border:1px solid var(--border); border-radius:4px; background:var(--pane); color:var(--text);
 }
-
 .code-editor-container {
-  flex: 1;
-  width: 100%;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  overflow: auto;
-  background-color: white; /* ensure white background behind CodeMirror */
-  margin-bottom: 8px;
+  flex:1; border:1px solid var(--border); border-radius:4px; overflow:hidden; margin-bottom:8px;
+  background:var(--pane);
 }
-
-/* ===== Input Pane ===== */
 .input-pane {
-  height: 80px;
-  width: 100%;
-  font-family: monospace;
-  font-size: 14px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  padding: 8px;
-  resize: none;
-  outline: none;
-  margin-top: 8px;
+  width:100%; height:80px; font-family:monospace; font-size:14px;
+  border:1px solid var(--border); border-radius:4px; padding:8px; resize:none;
+  background:var(--pane); color:var(--text);
 }
 
-/* ===== Right Pane ===== */
+/* Right pane */
 .right-pane {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  padding: 8px;
-  background-color: #fff;
+  flex:1; display:flex; flex-direction:column; padding:8px; background:var(--pane);
 }
-
 .output-pane {
-  flex: 1;
-  width: 100%;
-  font-family: monospace;
-  font-size: 14px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  padding: 8px;
-  resize: none;
-  outline: none;
-  background-color: #f0f0f0;
-  overflow-y: auto;
+  flex:1; width:100%; font-family:monospace; font-size:14px;
+  border:1px solid var(--border); border-radius:4px; padding:8px; resize:none;
+  background:var(--outbg); color:var(--text); overflow-y:auto;
 }
 
-/* ===== Scrollbar Styling (Optional) ===== */
+/* Scrollbars */
 .code-editor-container::-webkit-scrollbar,
-.output-pane::-webkit-scrollbar,
-.input-pane::-webkit-scrollbar {
-  width: 8px;
+.input-pane::-webkit-scrollbar,
+.output-pane::-webkit-scrollbar {
+  width:8px;
 }
-
 .code-editor-container::-webkit-scrollbar-thumb,
-.output-pane::-webkit-scrollbar-thumb,
-.input-pane::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.2);
-  border-radius: 4px;
-}
-
-/* Share button styling matches RUN/SAVE */
-.share-button {
-  width: 60px;
-  padding: 6px 0;
-  margin: 0 6px;
-  font-size: 14px;
-  font-weight: bold;
-  color: #fff;
-  background-color: #333;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.share-button:hover {
-  background-color: #555;
+.input-pane::-webkit-scrollbar-thumb,
+.output-pane::-webkit-scrollbar-thumb {
+  background:rgba(0,0,0,0.2); border-radius:4px;
 }

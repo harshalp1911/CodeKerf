@@ -4,12 +4,16 @@ import CodeMirror from '@uiw/react-codemirror';
 import { cpp } from '@codemirror/lang-cpp';
 import { python } from '@codemirror/lang-python';
 import { java } from '@codemirror/lang-java';
+import { dracula } from '@uiw/codemirror-theme-dracula';
 import { io } from 'socket.io-client';
 import { v4 as uuidv4 } from 'uuid';
 
 import './App.css';
 
 function App() {
+  // 0. Dark mode toggle
+  const [darkMode, setDarkMode] = useState(false);
+
   // 1. Session ID
   const [sessionId] = useState(() => {
     const params = new URLSearchParams(window.location.search);
@@ -20,7 +24,7 @@ function App() {
     return gen;
   });
 
-  // 2. State
+  // 2. Editor state
   const [language, setLanguage] = useState('cpp');
   const [code, setCode]         = useState('');
   const [stdin, setStdin]       = useState('');
@@ -31,27 +35,22 @@ function App() {
 
   // 4. Connect & join session
   useEffect(() => {
-    // no URL ⇒ connects to same‐origin + proxy ⇒ → http://localhost:5001 in dev
-    const socket = io();  
+    const socket = io();  // CRA proxy → http://localhost:5001
     socketRef.current = socket;
 
     socket.emit('joinSession', sessionId);
-
     socket.on('initSession', ({ code, language }) => {
       setCode(code);
       setLanguage(language);
     });
+    socket.on('codeUpdate',     newCode => setCode(newCode));
+    socket.on('languageUpdate', newLang => setLanguage(newLang));
+    socket.on('runResult',      ({ stdout, stderr }) => setOutput(stderr||stdout));
 
-    socket.on('codeUpdate',    (newCode) => setCode(newCode));
-    socket.on('languageUpdate',(newLang) => setLanguage(newLang));
-    socket.on('runResult',     ({ stdout, stderr }) => {
-      setOutput(stderr || stdout);
-    });
-
-    return () => { socket.disconnect(); };
+    return () => socket.disconnect();
   }, [sessionId]);
 
-  // 5. Language extension
+  // 5. CodeMirror extension
   const getLanguageExtension = () => {
     switch (language) {
       case 'cpp':    return cpp();
@@ -62,77 +61,70 @@ function App() {
   };
 
   // 6. Handlers
-  const handleCodeChange = (value) => {
-    setCode(value);
-    socketRef.current.emit('codeChange', { sessionId, code: value });
+  const handleCodeChange = val => {
+    setCode(val);
+    socketRef.current.emit('codeChange',{ sessionId, code: val });
   };
-
-  const handleLanguageChange = (e) => {
+  const handleLanguageChange = e => {
     const lang = e.target.value;
     setLanguage(lang);
-    socketRef.current.emit('languageChange', { sessionId, language: lang });
+    socketRef.current.emit('languageChange',{ sessionId, language: lang });
   };
 
-  // 7. SAVE
+  // 7. Save file
   const onSave = () => {
-    const ext = language === 'cpp'
-      ? 'cpp'
-      : language === 'python'
-      ? 'py'
-      : 'java';
-
-    const blob = new Blob([code], { type: 'text/plain' });
+    const ext = language==='cpp'?'cpp':language==='python'?'py':'java';
+    const blob = new Blob([code],{type:'text/plain'});
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
     a.download = `code.${ext}`;
     document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    a.remove();
   };
 
-  // 8. RUN + broadcast
+  // 8. Run code
   const onRun = async () => {
     setOutput('Running...');
     try {
-      const res = await fetch(`/api/run`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ language, code, stdin })
+      const res = await fetch('/api/run',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ language, code, stdin })
       });
       if (!res.ok) throw new Error(await res.text());
       const { stdout, stderr } = await res.json();
-
-      setOutput(stderr || stdout);
-      socketRef.current.emit('runResult', { sessionId, stdout, stderr });
-    } catch (err) {
+      setOutput(stderr||stdout);
+      socketRef.current.emit('runResult',{ sessionId, stdout, stderr });
+    } catch(err) {
       setOutput(`Error: ${err.message}`);
     }
   };
 
-  // 9. SHARE
+  // 9. Share link
   const onShare = useCallback(() => {
     const url = window.location.href;
-    navigator.clipboard.writeText(url)
-      .then(() => alert('Share link copied!'))
-      .catch(() => {
-        // fallback
-        const ta = document.createElement('textarea');
-        ta.value = url;
-        document.body.appendChild(ta);
-        ta.select();
-        try { document.execCommand('copy'); alert('Share link copied!'); }
-        catch { window.prompt('Copy this link:', url); }
-        document.body.removeChild(ta);
-      });
-  }, []);
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(url).then(() => alert('🔗 Link copied!'))
+        .catch(() => window.prompt('Copy this link:', url));
+    } else {
+      window.prompt('Copy this link:', url);
+    }
+  },[]);
 
   return (
-    <div className="App">
+    <div className={`App${darkMode? ' dark':''}`}>
       <header className="header">
         <h1 className="app-title">CodeKerf</h1>
         <div className="nav-buttons">
+          <button
+            className="theme-toggle"
+            onClick={()=>setDarkMode(!darkMode)}
+            title="Toggle light/dark"
+          >
+            {darkMode? '☀️':'🌙'}
+          </button>
           <button className="run-button"   onClick={onRun}>RUN</button>
           <button className="share-button" onClick={onShare}>SHARE</button>
           <button className="save-button"  onClick={onSave}>SAVE</button>
@@ -146,6 +138,7 @@ function App() {
             id="lang-select"
             value={language}
             onChange={handleLanguageChange}
+            className="lang-select"
           >
             <option value="cpp">C++</option>
             <option value="python">Python</option>
@@ -156,8 +149,9 @@ function App() {
             <CodeMirror
               value={code}
               height="100%"
-              extensions={[getLanguageExtension()]}
+              extensions={[ getLanguageExtension() ]}
               onChange={handleCodeChange}
+              theme={darkMode? dracula : 'light'}
               basicSetup={{
                 lineNumbers: true,
                 highlightActiveLine: true,
@@ -174,7 +168,7 @@ function App() {
             className="input-pane"
             placeholder="Paste input values here…"
             value={stdin}
-            onChange={(e) => setStdin(e.target.value)}
+            onChange={e=>setStdin(e.target.value)}
           />
         </div>
 
