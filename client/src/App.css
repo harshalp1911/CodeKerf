@@ -1,92 +1,179 @@
 /* client/src/App.css */
 /* Reset & variables */
 :root {
-  --bg:      #ffffff;
-  --text:    #333333;
-  --header:  #f5f5f5;
-  --pane:    #ffffff;
-  --outbg:   #f0f0f0;
-  --btn:     #333333;
+  --bg:        #ffffff;
+  --text:      #333333;
+  --header:    #f5f5f5;
+  --pane:      #ffffff;
+  --outbg:     #f0f0f0;
+  --btn:       #333333;
   --btn-hover: #555555;
-  --border:  #ddd;
+  --border:    #ddd;
 }
 .App.dark {
-  --bg:      #1e1e1e;
-  --text:    #dddddd;
-  --header:  #2e2e2e;
-  --pane:    #252526;
-  --outbg:   #1e1e1e;
-  --btn:     #555555;
+  --bg:        #323232;
+  --text:      #dddddd;
+  --header:    #000000;
+  --pane:      #303030;
+  --outbg:     #1e1e1e;
+  --btn:       #555555;
   --btn-hover: #777777;
-  --border:  #444444;
+  --border:    #444444;
 }
 
-/* Global */
-* { margin:0; padding:0; box-sizing:border-box; }
-body, #root, .App { height:100%; font-family:Arial,sans-serif; background:var(--bg); color:var(--text); }
+/* ─── Global ────────────────────────────────────────── */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+html, body, #root {
+  height: 100%;
+  width: 100%;
+}
+body {
+  font-family: Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
 
-/* Header */
+/* ─── App Container ─────────────────────────────────── */
+.App {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+/* ─── Header ────────────────────────────────────────── */
 .header {
-  display:flex; align-items:center; justify-content:space-between;
-  height:56px; padding:0 16px; background:var(--header); border-bottom:1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 56px;
+  padding: 0 16px;
+  background: var(--header);
+  border-bottom: 1px solid var(--border);
 }
-.app-title { font-size:24px; color:var(--text); }
-.nav-buttons { display:flex; align-items:center; }
+.app-title {
+  font-size: 24px;
+}
+.nav-buttons {
+  display: flex;
+  align-items: center;
+}
 .theme-toggle {
-  background:transparent; border:none; font-size:18px; cursor:pointer; margin-right:8px;
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  margin-right: 8px;
 }
 
-/* Buttons */
-.run-button, .save-button, .share-button {
-  width:60px; padding:6px 0; margin:0 6px; font-size:14px; font-weight:bold;
-  color:#fff; background:var(--btn); border:none; border-radius:4px; cursor:pointer;
-  transition:background 0.2s;
+/* ─── Buttons ───────────────────────────────────────── */
+button.run-button,
+button.share-button,
+button.save-button {
+  width: 60px;
+  padding: 6px 0;
+  margin: 0 6px;
+  font-size: 14px;
+  font-weight: bold;
+  color: #fff;
+  background: var(--btn);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
 }
-.run-button:hover, .save-button:hover, .share-button:hover {
-  background:var(--btn-hover);
+button.run-button:hover,
+button.share-button:hover,
+button.save-button:hover {
+  background: var(--btn-hover);
 }
 
-/* Layout */
-.editor-container { display:flex; height:calc(100% - 56px); }
+/* ─── Main Layout ───────────────────────────────────── */
+.editor-container {
+  flex: 1;             /* fill remaining vertical space */
+  display: flex;       /* side-by-side panes */
+  width: 100%;         /* full width */
+  overflow: hidden;
+}
 
-/* Left pane */
+/* ─── Left Pane ─────────────────────────────────────── */
 .left-pane {
-  flex:1; display:flex; flex-direction:column; border-right:1px solid var(--border);
-  padding:8px; background:var(--pane);
+  flex: 1;             /* half of width */
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--pane);
+  padding: 8px;
 }
-.lang-label { margin-bottom:4px; }
+.lang-label {
+  margin-bottom: 4px;
+}
 .lang-select {
-  width:150px; padding:4px; margin-bottom:8px; font-size:14px;
-  border:1px solid var(--border); border-radius:4px; background:var(--pane); color:var(--text);
+  width: 150px;
+  padding: 4px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--pane);
+  color: var(--text);
 }
 .code-editor-container {
-  flex:1; border:1px solid var(--border); border-radius:4px; overflow:hidden; margin-bottom:8px;
-  background:var(--pane);
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: auto;
+  margin-bottom: 8px;
+  background: var(--pane);
 }
 .input-pane {
-  width:100%; height:80px; font-family:monospace; font-size:14px;
-  border:1px solid var(--border); border-radius:4px; padding:8px; resize:none;
-  background:var(--pane); color:var(--text);
+  width: 100%;
+  height: 80px;
+  font-family: monospace;
+  font-size: 14px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+  resize: none;
+  background: var(--pane);
+  color: var(--text);
 }
 
-/* Right pane */
+/* ─── Right Pane ────────────────────────────────────── */
 .right-pane {
-  flex:1; display:flex; flex-direction:column; padding:8px; background:var(--pane);
+  flex: 1;             /* other half of width */
+  display: flex;
+  flex-direction: column;
+  background: var(--pane);
+  padding: 8px;
 }
 .output-pane {
-  flex:1; width:100%; font-family:monospace; font-size:14px;
-  border:1px solid var(--border); border-radius:4px; padding:8px; resize:none;
-  background:var(--outbg); color:var(--text); overflow-y:auto;
+  flex: 1;
+  width: 100%;
+  font-family: monospace;
+  font-size: 14px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+  resize: none;
+  background: var(--outbg);
+  color: var(--text);
+  overflow-y: auto;
 }
 
-/* Scrollbars */
+/* ─── Scrollbars ────────────────────────────────────── */
 .code-editor-container::-webkit-scrollbar,
 .input-pane::-webkit-scrollbar,
 .output-pane::-webkit-scrollbar {
-  width:8px;
+  width: 8px;
 }
 .code-editor-container::-webkit-scrollbar-thumb,
 .input-pane::-webkit-scrollbar-thumb,
 .output-pane::-webkit-scrollbar-thumb {
-  background:rgba(0,0,0,0.2); border-radius:4px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
 }
