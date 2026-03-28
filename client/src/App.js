@@ -125,25 +125,31 @@ function App() {
           >
             {darkMode? '☀️':'🌙'}
           </button>
-          <button className="run-button"   onClick={onRun}>RUN</button>
-          <button className="share-button" onClick={onShare}>SHARE</button>
-          <button className="save-button"  onClick={onSave}>SAVE</button>
+          <button className="save-button"  onClick={onSave}>💾 SAVE</button>
         </div>
       </header>
 
       <div className="editor-container">
         <div className="left-pane">
-          <label htmlFor="lang-select" className="lang-label">Language:</label>
-          <select
-            id="lang-select"
-            value={language}
-            onChange={handleLanguageChange}
-            className="lang-select"
-          >
-            <option value="cpp">C++</option>
-            <option value="python">Python</option>
-            <option value="java">Java</option>
-          </select>
+          <div className="left-pane-header">
+            <div className="lang-section">
+              <label htmlFor="lang-select" className="lang-label">Language:</label>
+              <select
+                id="lang-select"
+                value={language}
+                onChange={handleLanguageChange}
+                className="lang-select"
+              >
+                <option value="cpp">C++</option>
+                <option value="python">Python</option>
+                <option value="java">Java</option>
+              </select>
+            </div>
+            <div className="action-buttons">
+              <button className="run-button" onClick={onRun}>▶ RUN</button>
+              <button className="share-button" onClick={onShare}>🔗 SHARE</button>
+            </div>
+          </div>
 
           <div className="code-editor-container">
             <CodeMirror
