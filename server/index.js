@@ -13,7 +13,7 @@ const util = require('util');
 const exec = util.promisify(require('child_process').exec);
 
 const app = express();
-const PORT = process.env.PORT || 5001;
+const PORT = process.env.PORT || 5002;
 
 // ── 1) MONGO ─────────────────────────────────────────────────────────────
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/online-code-editor';

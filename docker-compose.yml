@@ -16,7 +16,7 @@ services:
     environment:
       - MONGO_URI=mongodb://mongo:27017/online-code-editor
     ports:
-      - "5001:5001"
+      - "5001:5002"
     depends_on:
       - mongo
     volumes:
