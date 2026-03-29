@@ -7,6 +7,7 @@ import { java } from '@codemirror/lang-java';
 import { dracula } from '@uiw/codemirror-theme-dracula';
 import { io } from 'socket.io-client';
 import { v4 as uuidv4 } from 'uuid';
+import { PlayIcon, ShareIcon, SaveIcon, SunIcon, MoonIcon } from './Icons';
 
 import './App.css';
 
@@ -123,9 +124,11 @@ function App() {
             onClick={()=>setDarkMode(!darkMode)}
             title="Toggle light/dark"
           >
-            {darkMode? '☀️':'🌙'}
+            {darkMode ? <SunIcon /> : <MoonIcon />}
           </button>
-          <button className="save-button"  onClick={onSave}>💾 SAVE</button>
+          <button className="save-button" onClick={onSave}>
+            <SaveIcon size={14} /> SAVE
+          </button>
         </div>
       </header>
 
@@ -146,8 +149,12 @@ function App() {
               </select>
             </div>
             <div className="action-buttons">
-              <button className="run-button" onClick={onRun}>▶ RUN</button>
-              <button className="share-button" onClick={onShare}>🔗 SHARE</button>
+              <button className="run-button" onClick={onRun}>
+                <PlayIcon size={14} /> RUN
+              </button>
+              <button className="share-button" onClick={onShare}>
+                <ShareIcon size={14} /> SHARE
+              </button>
             </div>
           </div>
 

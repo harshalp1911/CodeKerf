@@ -12,24 +12,14 @@
 }
 
 .App.dark {
-  --bg:           #0f172a;
-  --text:         #e2e8f0;
-  --header-bg:    #1e293b;
-  --pane-bg:      #1e293b;
-  --output-bg:    #0f172a;
-  --border:       #334155;
-  --shadow:       rgba(0, 0, 0, 0.3);
-  
-  --primary:      #6366f1;
-  --primary-hover:#4f46e5;
-  --primary-text: #ffffff;
-  
-  --secondary:    transparent;
-  --secondary-border: #475569;
-  --secondary-hover: #334155;
-  --secondary-text: #cbd5e1;
-  
-  --accent:       #a78bfa;
+  --bg:        #0f172a;
+  --text:      #e2e8f0;
+  --header:    #1e293b;
+  --pane:      #1e293b;
+  --outbg:     #0f172a;
+  --border:    #334155;
+  --btn:       #6366f1;
+  --btn-hover: #4f46e5;
 }
 
 /* ─── Global ────────────────────────────────────────── */
@@ -63,7 +53,7 @@ body {
   justify-content: space-between;
   height: 60px;
   padding: 0 20px;
-  background: var(--header-bg);
+  background: var(--header);
   border-bottom: 2px solid var(--border);
 }
 .app-title {
@@ -87,34 +77,42 @@ body {
   background: transparent;
   border: 1px solid var(--border);
   border-radius: 0;
-  font-size: 16px;
   cursor: pointer;
 }
+.theme-toggle svg {
+  display: block;
+}
 .theme-toggle:hover {
-  background: var(--secondary-hover);
+  background: var(--outbg);
 }
 
 /* ─── Buttons ───────────────────────────────────────── */
 button.run-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 6px 16px;
   font-size: 13px;
   font-weight: 500;
-  color: var(--primary-text);
-  background: var(--primary);
+  color: #ffffff;
+  background: var(--btn);
   border: none;
   border-radius: 0;
   cursor: pointer;
 }
 button.run-button:hover {
-  background: var(--primary-hover);
+  background: var(--btn-hover);
 }
 
 button.share-button,
 button.save-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 6px 16px;
   font-size: 13px;
   font-weight: 500;
-  color: var(--secondary-text);
+  color: var(--text);
   background: transparent;
   border: 1px solid var(--border);
   border-radius: 0;
@@ -122,8 +120,8 @@ button.save-button {
 }
 button.share-button:hover,
 button.save-button:hover {
-  background: var(--secondary-hover);
-  border-color: var(--primary);
+  background: var(--outbg);
+  border-color: var(--btn);
 }
 
 /* ─── Main Layout ───────────────────────────────────── */
@@ -141,7 +139,7 @@ button.save-button:hover {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: var(--pane-bg);
+  background: var(--pane);
   padding: 12px;
 }
 .left-pane-header {
@@ -165,7 +163,7 @@ button.save-button:hover {
   font-size: 12px;
   font-weight: 500;
   text-transform: uppercase;
-  color: var(--secondary-text);
+  color: #666;
   white-space: nowrap;
 }
 .lang-select {
@@ -174,13 +172,13 @@ button.save-button:hover {
   font-size: 13px;
   border: 1px solid var(--border);
   border-radius: 0;
-  background: var(--pane-bg);
+  background: var(--pane);
   color: var(--text);
   cursor: pointer;
 }
 .lang-select:focus {
   outline: none;
-  border-color: var(--primary);
+  border-color: var(--btn);
 }
 .code-editor-container {
   flex: 1;
@@ -188,7 +186,7 @@ button.save-button:hover {
   border-radius: 0;
   overflow: hidden;
   margin-bottom: 10px;
-  background: var(--pane-bg);
+  background: var(--pane);
 }
 .input-pane {
   width: 100%;
@@ -200,12 +198,12 @@ button.save-button:hover {
   border-radius: 0;
   padding: 8px;
   resize: none;
-  background: var(--output-bg);
+  background: var(--outbg);
   color: var(--text);
 }
 .input-pane:focus {
   outline: none;
-  border-color: var(--primary);
+  border-color: var(--btn);
 }
 
 /* ─── Right Pane ────────────────────────────────────── */
@@ -213,7 +211,7 @@ button.save-button:hover {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: var(--pane-bg);
+  background: var(--pane);
   padding: 12px;
 }
 .output-pane {
@@ -226,7 +224,7 @@ button.save-button:hover {
   border-radius: 0;
   padding: 12px;
   resize: none;
-  background: var(--output-bg);
+  background: var(--outbg);
   color: var(--text);
   overflow-y: auto;
 }
@@ -253,6 +251,6 @@ button.save-button:hover {
 .code-editor-container::-webkit-scrollbar-thumb:hover,
 .input-pane::-webkit-scrollbar-thumb:hover,
 .output-pane::-webkit-scrollbar-thumb:hover {
-  background: var(--secondary-text);
+  background: #999;
   background-clip: padding-box;
 }
