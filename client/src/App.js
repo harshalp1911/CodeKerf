@@ -1,200 +1,61 @@
-// client/src/App.js
-import React, { useEffect, useState, useRef, useCallback } from 'react';
-import CodeMirror from '@uiw/react-codemirror';
-import { cpp } from '@codemirror/lang-cpp';
-import { python } from '@codemirror/lang-python';
-import { java } from '@codemirror/lang-java';
-import { dracula } from '@uiw/codemirror-theme-dracula';
-import { io } from 'socket.io-client';
-import { v4 as uuidv4 } from 'uuid';
-import { PlayIcon, ShareIcon, SaveIcon, SunIcon, MoonIcon } from './Icons';
-
+import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './contexts/AuthContext';
+import ProtectedRoute from './components/Auth/ProtectedRoute';
+import Login from './pages/Login';
+import AuthSuccess from './components/Auth/AuthSuccess';
+import Dashboard from './pages/Dashboard';
+import Room from './pages/Room';
 import './App.css';
 
 function App() {
-  // 0. Dark mode toggle
-  const [darkMode, setDarkMode] = useState(false);
-
-  // 1. Session ID
-  const [sessionId] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    const existing = params.get('session');
-    if (existing) return existing;
-    const gen = uuidv4();
-    window.history.replaceState(null, '', `?session=${gen}`);
-    return gen;
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('darkMode');
+    return saved ? JSON.parse(saved) : false;
   });
 
-  // 2. Editor state
-  const [language, setLanguage] = useState('cpp');
-  const [code, setCode]         = useState('');
-  const [stdin, setStdin]       = useState('');
-  const [output, setOutput]     = useState('');
-
-  // 3. Socket ref
-  const socketRef = useRef(null);
-
-  // 4. Connect & join session
   useEffect(() => {
-    const socket = io();  // CRA proxy → http://localhost:5001
-    socketRef.current = socket;
-
-    socket.emit('joinSession', sessionId);
-    socket.on('initSession', ({ code, language }) => {
-      setCode(code);
-      setLanguage(language);
-    });
-    socket.on('codeUpdate',     newCode => setCode(newCode));
-    socket.on('languageUpdate', newLang => setLanguage(newLang));
-    socket.on('runResult',      ({ stdout, stderr }) => setOutput(stderr||stdout));
-
-    return () => socket.disconnect();
-  }, [sessionId]);
-
-  // 5. CodeMirror extension
-  const getLanguageExtension = () => {
-    switch (language) {
-      case 'cpp':    return cpp();
-      case 'python': return python();
-      case 'java':   return java();
-      default:       return [];
-    }
-  };
-
-  // 6. Handlers
-  const handleCodeChange = val => {
-    setCode(val);
-    socketRef.current.emit('codeChange',{ sessionId, code: val });
-  };
-  const handleLanguageChange = e => {
-    const lang = e.target.value;
-    setLanguage(lang);
-    socketRef.current.emit('languageChange',{ sessionId, language: lang });
-  };
-
-  // 7. Save file
-  const onSave = () => {
-    const ext = language==='cpp'?'cpp':language==='python'?'py':'java';
-    const blob = new Blob([code],{type:'text/plain'});
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `code.${ext}`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  };
-
-  // 8. Run code
-  const onRun = async () => {
-    setOutput('Running...');
-    try {
-      const res = await fetch('/api/run',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ language, code, stdin })
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const { stdout, stderr } = await res.json();
-      setOutput(stderr||stdout);
-      socketRef.current.emit('runResult',{ sessionId, stdout, stderr });
-    } catch(err) {
-      setOutput(`Error: ${err.message}`);
-    }
-  };
-
-  // 9. Share link
-  const onShare = useCallback(() => {
-    const url = window.location.href;
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(url).then(() => alert('🔗 Link copied!'))
-        .catch(() => window.prompt('Copy this link:', url));
+    localStorage.setItem('darkMode', JSON.stringify(darkMode));
+    if (darkMode) {
+      document.body.classList.add('dark');
     } else {
-      window.prompt('Copy this link:', url);
+      document.body.classList.remove('dark');
     }
-  },[]);
+  }, [darkMode]);
 
   return (
-    <div className={`App${darkMode? ' dark':''}`}>
-      <header className="header">
-        <h1 className="app-title">CodeKerf</h1>
-        <div className="nav-buttons">
-          <button
-            className="theme-toggle"
-            onClick={()=>setDarkMode(!darkMode)}
-            title="Toggle light/dark"
-          >
-            {darkMode ? <SunIcon /> : <MoonIcon />}
-          </button>
-          <button className="save-button" onClick={onSave}>
-            <SaveIcon size={14} /> SAVE
-          </button>
-        </div>
-      </header>
-
-      <div className="editor-container">
-        <div className="left-pane">
-          <div className="left-pane-header">
-            <div className="lang-section">
-              <label htmlFor="lang-select" className="lang-label">Language:</label>
-              <select
-                id="lang-select"
-                value={language}
-                onChange={handleLanguageChange}
-                className="lang-select"
-              >
-                <option value="cpp">C++</option>
-                <option value="python">Python</option>
-                <option value="java">Java</option>
-              </select>
-            </div>
-            <div className="action-buttons">
-              <button className="run-button" onClick={onRun}>
-                <PlayIcon size={14} /> RUN
-              </button>
-              <button className="share-button" onClick={onShare}>
-                <ShareIcon size={14} /> SHARE
-              </button>
-            </div>
-          </div>
-
-          <div className="code-editor-container">
-            <CodeMirror
-              value={code}
-              height="100%"
-              extensions={[ getLanguageExtension() ]}
-              onChange={handleCodeChange}
-              theme={darkMode? dracula : 'light'}
-              basicSetup={{
-                lineNumbers: true,
-                highlightActiveLine: true,
-                highlightActiveLineGutter: true,
-                defaultKeymap: true,
-                history: true,
-                highlightSelectionMatches: true,
-                foldGutter: true
+    <AuthProvider>
+      <Router>
+        <div className={`App ${darkMode ? 'dark' : ''}`}>
+          <div style={{ position: 'fixed', top: '15px', right: '20px', zIndex: 1000 }}>
+            <button 
+              onClick={() => setDarkMode(!darkMode)}
+              style={{
+                background: 'var(--pane)',
+                border: '1px solid var(--border)',
+                color: 'var(--text)',
+                padding: '6px 12px',
+                cursor: 'pointer'
               }}
-            />
+            >
+              {darkMode ? '☀️ Light' : '🌙 Dark'}
+            </button>
           </div>
 
-          <textarea
-            className="input-pane"
-            placeholder="Paste input values here…"
-            value={stdin}
-            onChange={e=>setStdin(e.target.value)}
-          />
-        </div>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/auth-success" element={<AuthSuccess />} />
+            
+            <Route element={<ProtectedRoute />}>
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/room/:id" element={<Room />} />
+            </Route>
 
-        <div className="right-pane">
-          <textarea
-            className="output-pane"
-            placeholder="Program output will appear here…"
-            value={output}
-            readOnly
-          />
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
         </div>
-      </div>
-    </div>
+      </Router>
+    </AuthProvider>
   );
 }
 
