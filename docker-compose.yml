@@ -15,12 +15,14 @@ services:
       dockerfile: Dockerfile
     environment:
       - MONGO_URI=mongodb://mongo:27017/online-code-editor
+      - REDIS_URL=redis://redis:6379
     ports:
       - "5001:5002"
     depends_on:
       - mongo
+      - redis
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock   # ← add this line
+      - /var/run/docker.sock:/var/run/docker.sock
       - /tmp:/tmp
 
   mongo:
@@ -28,5 +30,13 @@ services:
     volumes:
       - mongo-data:/data/db
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
 volumes:
   mongo-data:
+  redis-data:
