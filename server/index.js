@@ -33,7 +33,7 @@ const pubClient = createClient({ url: redisUrl });
 const subClient = pubClient.duplicate();
 
 Promise.all([pubClient.connect(), subClient.connect()]).then(() => {
-  console.log('✅ Redis connected');
+  console.log('✅ Rediss connected');
 });
 
 // Import models
