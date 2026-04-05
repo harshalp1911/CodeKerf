@@ -1,7 +1,10 @@
 # docker/java-runner/Dockerfile
 
-# 1. Base image: official OpenJDK (Debian‐based)
-FROM openjdk:latest
+# 1. Base image: Alpine with OpenJDK installed (much smaller)
+FROM alpine:latest
+
+# Install OpenJDK, bash and coreutils
+RUN apk add --no-cache openjdk17 bash coreutils
 
 # 2. Create a working directory in the container
 WORKDIR /workspace

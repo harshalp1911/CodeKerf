@@ -11,9 +11,9 @@ const AuthSuccess = () => {
     const token = searchParams.get('token');
     if (token) {
       login(token);
-      navigate('/dashboard', { replace: true });
+      navigate('/', { replace: true });
     } else {
-      navigate('/login', { replace: true });
+      navigate('/', { replace: true });
     }
   }, [searchParams, login, navigate]);
 

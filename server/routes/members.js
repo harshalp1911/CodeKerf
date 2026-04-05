@@ -31,7 +31,7 @@ router.post('/invite', canInvite, async (req, res) => {
 
     const userToInvite = await User.findOne({ email });
     if (!userToInvite) {
-      return res.status(404).json({ error: 'User not found. They must sign in first.' });
+      return res.status(404).json({ error: `User with email "${email}" hasn't signed up yet. Ask them to visit the site and log in with Google first, then you can invite them.` });
     }
 
     // Check if already a member

@@ -1,5 +1,11 @@
 import React, { useState } from 'react';
 
+const ROLE_COLORS = {
+  owner: '#6366f1',
+  editor: '#22c55e',
+  viewer: '#f59e0b'
+};
+
 const MemberList = ({ roomId, members: initialMembers, role, token }) => {
   const [members, setMembers] = useState(initialMembers || []);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -13,12 +19,12 @@ const MemberList = ({ roomId, members: initialMembers, role, token }) => {
   const handleInvite = async (e) => {
     e.preventDefault();
     if (!inviteEmail) return;
-    
+
     setError('');
     setSuccess('');
 
     try {
-      const res = await fetch(`http://localhost:5001/api/rooms/${roomId}/members/invite`, {
+      const res = await fetch(`/api/rooms/${roomId}/members/invite`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -31,8 +37,9 @@ const MemberList = ({ roomId, members: initialMembers, role, token }) => {
 
       if (res.ok) {
         setMembers([...members, data]);
-        setSuccess('User invited successfully');
+        setSuccess('Invited!');
         setInviteEmail('');
+        setTimeout(() => setSuccess(''), 2000);
       } else {
         setError(data.error || 'Failed to invite user');
       }
@@ -43,7 +50,7 @@ const MemberList = ({ roomId, members: initialMembers, role, token }) => {
 
   const handleRoleChange = async (memberId, newRole) => {
     try {
-      const res = await fetch(`http://localhost:5001/api/rooms/${roomId}/members/${memberId}`, {
+      const res = await fetch(`/api/rooms/${roomId}/members/${memberId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -62,11 +69,9 @@ const MemberList = ({ roomId, members: initialMembers, role, token }) => {
 
   const handleRemove = async (memberId) => {
     try {
-      const res = await fetch(`http://localhost:5001/api/rooms/${roomId}/members/${memberId}`, {
+      const res = await fetch(`/api/rooms/${roomId}/members/${memberId}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Authorization': `Bearer ${token}` }
       });
 
       if (res.ok) {
@@ -79,38 +84,54 @@ const MemberList = ({ roomId, members: initialMembers, role, token }) => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ padding: '10px', background: 'var(--header)', borderBottom: '1px solid var(--border)', fontWeight: 'bold' }}>
-        Members ({members.length})
-      </div>
-      
-      <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
+      {/* Member List */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
         {members.map(member => (
-          <div key={member.userId._id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', padding: '8px', background: 'var(--bg)', border: '1px solid var(--border)' }}>
-            <div>
-              <div style={{ fontWeight: '500', fontSize: '14px' }}>{member.userId.name}</div>
-              <div style={{ fontSize: '12px', color: 'var(--secondary-text)' }}>{member.userId.email}</div>
+          <div key={member.userId._id} style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            marginBottom: '6px', padding: '8px 10px',
+            background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '4px'
+          }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontWeight: 500, fontSize: '13px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {member.userId.name}
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text)', opacity: 0.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {member.userId.email}
+              </div>
             </div>
-            
-            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0, marginLeft: '8px' }}>
               {isOwner && member.role !== 'owner' ? (
-                <select 
+                <select
                   value={member.role}
                   onChange={(e) => handleRoleChange(member.userId._id, e.target.value)}
-                  style={{ padding: '2px', fontSize: '12px' }}
+                  style={{
+                    padding: '2px 4px', fontSize: '11px',
+                    background: 'var(--pane)', color: 'var(--text)',
+                    border: '1px solid var(--border)', borderRadius: '3px'
+                  }}
                 >
                   <option value="editor">Editor</option>
                   <option value="viewer">Viewer</option>
                 </select>
               ) : (
-                <span style={{ fontSize: '12px', padding: '2px 6px', background: '#eee', borderRadius: '3px' }}>
+                <span style={{
+                  fontSize: '10px', fontWeight: 600, padding: '2px 6px',
+                  background: ROLE_COLORS[member.role] || '#666',
+                  color: '#fff', borderRadius: '3px', textTransform: 'uppercase'
+                }}>
                   {member.role}
                 </span>
               )}
-              
+
               {isOwner && member.role !== 'owner' && (
-                <button 
+                <button
                   onClick={() => handleRemove(member.userId._id)}
-                  style={{ color: 'red', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '16px' }}
+                  style={{
+                    color: '#ef4444', border: 'none', background: 'transparent',
+                    cursor: 'pointer', fontSize: '14px', padding: '0 2px', lineHeight: 1
+                  }}
                   title="Remove member"
                 >
                   ×
@@ -121,32 +142,43 @@ const MemberList = ({ roomId, members: initialMembers, role, token }) => {
         ))}
       </div>
 
+      {/* Invite Form */}
       {isOwnerOrEditor && (
-        <div style={{ padding: '10px', borderTop: '1px solid var(--border)', background: 'var(--bg)' }}>
-          <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>Invite Member</div>
-          <form onSubmit={handleInvite} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <input 
-              type="email" 
-              placeholder="Email address" 
+        <div style={{ padding: '8px', borderTop: '1px solid var(--border)' }}>
+          <form onSubmit={handleInvite} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <input
+              type="email"
+              placeholder="Email to invite..."
               value={inviteEmail}
               onChange={(e) => setInviteEmail(e.target.value)}
-              style={{ padding: '6px', border: '1px solid var(--border)' }}
+              style={{
+                padding: '6px 8px', fontSize: '12px',
+                border: '1px solid var(--border)', background: 'var(--bg)',
+                color: 'var(--text)', outline: 'none', borderRadius: '3px'
+              }}
             />
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <select 
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <select
                 value={inviteRole}
                 onChange={(e) => setInviteRole(e.target.value)}
-                style={{ flex: 1, padding: '6px', border: '1px solid var(--border)' }}
+                style={{
+                  flex: 1, padding: '5px', fontSize: '12px',
+                  border: '1px solid var(--border)', background: 'var(--pane)',
+                  color: 'var(--text)', borderRadius: '3px'
+                }}
               >
                 <option value="editor">Editor</option>
                 <option value="viewer">Viewer</option>
               </select>
-              <button type="submit" style={{ padding: '6px 12px', background: 'var(--btn)', color: 'white', border: 'none', cursor: 'pointer' }}>
+              <button type="submit" style={{
+                padding: '5px 12px', background: 'var(--btn)', color: '#fff',
+                border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 500, borderRadius: '3px'
+              }}>
                 Invite
               </button>
             </div>
-            {error && <div style={{ color: 'red', fontSize: '12px' }}>{error}</div>}
-            {success && <div style={{ color: 'green', fontSize: '12px' }}>{success}</div>}
+            {error && <div style={{ color: '#ef4444', fontSize: '11px' }}>{error}</div>}
+            {success && <div style={{ color: '#22c55e', fontSize: '11px' }}>{success}</div>}
           </form>
         </div>
       )}

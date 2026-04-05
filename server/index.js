@@ -67,6 +67,7 @@ app.use('/api/rooms', roomRoutes);
 app.use('/api/rooms/:roomId/members', memberRoutes);
 
 // ── 3) REST ───────────────────────────────────────────────────────────────
+app.get('/', (_req, res) => res.json({ status: 'ok', service: 'CodeKerf API', version: '1.0.0' }));
 app.get('/api/ping', (_req, res) => res.json({ message: 'pong' }));
 
 app.post('/api/run', async (req, res) => {
@@ -146,29 +147,40 @@ io.on('connection', socket => {
   console.log('🔌', socket.id, socket.userId ? `(User: ${socket.userId})` : '(Anonymous)');
 
   socket.on('joinRoom', async ({ roomId }) => {
+    console.log('🚪 joinRoom:', socket.id, 'userId:', socket.userId, 'roomId:', roomId);
     socket.join(roomId);
+    socket.currentRoomId = roomId; // Track current room
     
     // Check if user has permission (if logged in)
     if (socket.userId) {
       const membership = await RoomMember.findOne({ roomId, userId: socket.userId });
       socket.role = membership ? membership.role : 'viewer';
+      console.log('👤 User role assigned:', socket.role, 'membership:', !!membership);
     } else {
       socket.role = 'viewer';
+      console.log('👤 Anonymous user, role: viewer');
     }
     
     // Load room state
     const room = await Room.findById(roomId);
     if (room) {
       socket.emit('roomState', { code: room.code, language: room.language, role: socket.role });
+      console.log('📦 Sent roomState to', socket.id);
     }
   });
 
   socket.on('codeChange', async ({ roomId, code }) => {
+    console.log('📝 codeChange received from', socket.id, 'role:', socket.role, 'roomId:', roomId);
+    
     // Only editors/owners can change code
-    if (socket.role === 'viewer') return;
+    if (socket.role === 'viewer') {
+      console.log('⚠️ Viewer tried to change code, blocked');
+      return;
+    }
     
     // Broadcast to room immediately
     socket.to(roomId).emit('codeUpdate', code);
+    console.log('📤 Broadcasted codeUpdate to room', roomId);
     
     // Persist to DB (could be optimized with Redis caching later)
     await Room.findByIdAndUpdate(roomId, { code });
@@ -220,6 +232,53 @@ io.on('connection', socket => {
     io.to(roomId).emit('newMessage', chatMsg);
   });
 
+  socket.on('typing', ({ roomId, userId, userName }) => {
+    socket.to(roomId).emit('userTyping', { userId, userName });
+  });
+
+  socket.on('stoppedTyping', ({ roomId, userId }) => {
+    socket.to(roomId).emit('userStoppedTyping', { userId });
+  });
+
+  // Code editor cursor tracking
+  socket.on('cursorMove', async ({ roomId, line, ch }) => {
+    if (!socket.userId) return;
+    
+    // Assign a color based on userId hash
+    const colors = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899'];
+    const colorIndex = parseInt(socket.userId.slice(-2), 16) % colors.length;
+    
+    const User = require('./models/User');
+    const user = await User.findById(socket.userId).select('name');
+    
+    socket.to(roomId).emit('cursorMove', {
+      userId: socket.userId,
+      userName: user?.name || 'Unknown',
+      line,
+      ch,
+      color: colors[colorIndex]
+    });
+  });
+
+  // Whiteboard pointer tracking
+  socket.on('whiteboardPointer', async ({ roomId, x, y }) => {
+    if (!socket.userId) return;
+    
+    const colors = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899'];
+    const colorIndex = parseInt(socket.userId.slice(-2), 16) % colors.length;
+    
+    const User = require('./models/User');
+    const user = await User.findById(socket.userId).select('name');
+    
+    socket.to(roomId).emit('whiteboardPointerMove', {
+      userId: socket.userId,
+      userName: user?.name || 'Unknown',
+      x,
+      y,
+      color: colors[colorIndex]
+    });
+  });
+
   // Backward compatibility for old session mechanism during transition
   socket.on('joinSession', async sessionId => {
     socket.join(sessionId);
@@ -235,7 +294,42 @@ io.on('connection', socket => {
     socket.emit('initSession', { code: s.code, language: s.language });
   });
 
-  socket.on('disconnect', () => console.log('❌', socket.id));
+  socket.on('disconnect', async () => {
+    console.log('❌ Disconnect:', socket.id, 'userId:', socket.userId, 'roomId:', socket.currentRoomId, 'role:', socket.role);
+    
+    // If user was in a room, check if they're the owner
+    if (socket.currentRoomId && socket.userId) {
+      try {
+        const room = await Room.findById(socket.currentRoomId);
+        
+        // Check if this user is the room owner
+        if (room && room.createdBy.toString() === socket.userId) {
+          console.log('🗑️ Owner disconnected, deleting room:', socket.currentRoomId, 'owner:', socket.userId);
+          
+          // Notify all members BEFORE deleting
+          io.to(socket.currentRoomId).emit('roomDeleted', { 
+            message: 'Room owner has left. This room has been deleted.' 
+          });
+          
+          // Delete all members
+          await RoomMember.deleteMany({ roomId: socket.currentRoomId });
+          
+          // Delete whiteboard data
+          await Whiteboard.deleteOne({ roomId: socket.currentRoomId });
+          
+          // Delete chat messages
+          await ChatMessage.deleteMany({ roomId: socket.currentRoomId });
+          
+          // Delete the room
+          await Room.findByIdAndDelete(socket.currentRoomId);
+          
+          console.log('✅ Room deleted successfully:', socket.currentRoomId);
+        }
+      } catch (err) {
+        console.error('❌ Error deleting room on owner disconnect:', err);
+      }
+    }
+  });
 });
 
 httpServer.listen(PORT, () => {

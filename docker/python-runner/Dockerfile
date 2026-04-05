@@ -1,7 +1,10 @@
 # docker/python-runner/Dockerfile
 
-# 1. Base image: official Python 3
-FROM python:3
+# 1. Base image: Alpine-based Python 3 (much smaller)
+FROM python:3.11-alpine
+
+# Install bash and coreutils for timeout command
+RUN apk add --no-cache bash coreutils
 
 # 2. Set working directory inside container
 WORKDIR /workspace

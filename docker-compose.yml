@@ -13,6 +13,8 @@ services:
     build:
       context: ./server
       dockerfile: Dockerfile
+    env_file:
+      - ./server/.env
     environment:
       - MONGO_URI=mongodb://mongo:27017/online-code-editor
       - REDIS_URL=redis://redis:6379

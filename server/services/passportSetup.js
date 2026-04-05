@@ -5,7 +5,7 @@ const User = require('../models/User');
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID || 'placeholder_client_id',
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || 'placeholder_client_secret',
-    callbackURL: "/api/auth/google/callback"
+    callbackURL: (process.env.CLIENT_URL || 'http://localhost:3000') + "/api/auth/google/callback"
   },
   async (accessToken, refreshToken, profile, done) => {
     try {
@@ -16,7 +16,8 @@ passport.use(new GoogleStrategy({
           googleId: profile.id,
           email: profile.emails[0].value,
           name: profile.displayName,
-          avatar: profile.photos[0].value
+          avatar: profile.photos[0].value,
+          authMethod: 'google'
         });
       } else {
         user.lastLoginAt = new Date();

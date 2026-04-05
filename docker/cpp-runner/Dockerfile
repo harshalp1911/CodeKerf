@@ -1,7 +1,10 @@
 # docker/cpp-runner/Dockerfile
 
-# 1. Base image: official GCC toolchain on a slim Debian
-FROM gcc:latest
+# 1. Base image: Alpine with GCC installed (much smaller than Debian)
+FROM alpine:latest
+
+# Install GCC and build tools
+RUN apk add --no-cache g++ bash coreutils
 
 # 2. Create a working directory inside the container
 WORKDIR /workspace
