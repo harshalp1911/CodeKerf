@@ -176,10 +176,3 @@ docker ps | grep redis
 - ✅ Session persistence with MongoDB
 - ✅ Scalable with Redis adapter
 
-## Next Steps
-
-1. Configure Google OAuth credentials
-2. Start the application
-3. Create an account or login
-4. Create a room and invite collaborators
-5. Start coding together!

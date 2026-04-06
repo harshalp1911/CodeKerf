@@ -171,63 +171,16 @@
 
 ## 🚧 Pending Implementation
 
-### High Priority
-1. **Docker Runner Images Build**
-   - Need to start Docker daemon
-   - Run `./build-runners.sh` to build images
 
-2. **Environment Configuration**
-   - Copy `.env.example` to `.env` in server/
-   - Add Google OAuth credentials
-   - Configure JWT secret
-
-3. **Testing**
-   - Test authentication flow (Google + email/password)
-   - Test room creation and joining
-   - Test real-time collaboration
-   - Test code execution
-
-### Medium Priority
-1. **Multi-cursor Implementation**
-   - Track cursor positions per user
-   - Assign colors to users
-   - Broadcast cursor movements (throttled)
-   - Display user names with cursors
-
-2. **Whiteboard UI**
-   - Drawing tools interface
-   - Shape tools (circle, rectangle, square, triangle)
-   - Color picker (black, red, yellow)
-   - Text box tool
-   - Eraser tool
-   - Click-to-delete functionality
-
-3. **Room Join Approval System**
+1. **Room Join Approval System**
    - Join request popup for room creator
    - Approve/deny functionality
    - Real-time notification system
-
-4. **UI Enhancements**
-   - Disabled button states for non-authenticated users
-   - Low opacity for inaccessible features
-   - Tooltips on hover
-   - Better loading states
-
-### Low Priority
-1. **Chat UI Polish**
-   - Message history display
-   - User avatars
-   - Timestamp formatting
 
 2. **Error Handling**
    - Better error messages
    - Retry mechanisms
    - Connection status indicators
-
-3. **Performance Optimization**
-   - Container pooling for code execution
-   - Cursor update throttling
-   - Whiteboard action batching
 
 ## 📊 Architecture Decisions
 
@@ -249,22 +202,6 @@
 - ✅ Permission-based access control
 - ✅ Anonymous user support
 - ✅ Backward compatibility
-
-## 🚀 Next Steps
-
-1. **Start Docker daemon** and build runner images
-2. **Configure environment variables** with Google OAuth
-3. **Test the complete flow**:
-   - Anonymous user → code execution
-   - User registration/login
-   - Room creation
-   - Member invitation
-   - Real-time collaboration
-4. **Implement remaining UI components**:
-   - Multi-cursor display
-   - Whiteboard tools
-   - Join approval popup
-5. **Performance testing** and optimization
 
 ## 📝 Notes
 
