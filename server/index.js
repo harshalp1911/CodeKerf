@@ -211,6 +211,12 @@ io.on('connection', socket => {
     );
   });
 
+  socket.on('whiteboardObjectModified', ({ roomId, element }) => {
+    if (socket.role === 'viewer') return;
+    
+    socket.to(roomId).emit('whiteboardObjectModified', { element });
+  });
+
   socket.on('whiteboardClear', async ({ roomId }) => {
     if (socket.role === 'viewer') return;
     

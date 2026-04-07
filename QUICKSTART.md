@@ -157,18 +157,12 @@ docker restart redis
 - Dashboard, Login, Room pages
 - Component structure ready
 
-🚧 **Needs UI Implementation:**
-- Multi-cursor display
-- Whiteboard drawing tools
-- Join approval popup
-- Disabled button states for anonymous users
 
 ## 📚 Next Steps
 
 1. **Test the current setup** - Make sure everything runs
 2. **Configure Google OAuth** (optional) - For social login
-3. **Implement remaining UI** - Multi-cursor, whiteboard, etc.
-4. **Deploy to production** - When ready
+3. **Deploy to production** - When ready
 
 ## 💡 Tips
 

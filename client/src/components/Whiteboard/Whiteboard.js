@@ -92,7 +92,16 @@ const Whiteboard = ({ socket, roomId, role }) => {
       socket.emit('whiteboardDraw', { roomId, element: path.toJSON() });
     };
 
+    // Emit object modifications (text editing, moving, scaling)
+    const handleObjectModified = (e) => {
+      if (!socket) return;
+      const obj = e.target;
+      if (obj.isFromRemote) return; // Don't emit changes from remote updates
+      socket.emit('whiteboardObjectModified', { roomId, element: obj.toJSON() });
+    };
+
     canvas.on('path:created', handlePathCreated);
+    canvas.on('object:modified', handleObjectModified);
 
     // Delete selected object on keypress (select mode only, not while editing text)
     const handleKey = (e) => {
@@ -110,6 +119,7 @@ const Whiteboard = ({ socket, roomId, role }) => {
     document.addEventListener('keydown', handleKey);
     return () => {
       canvas.off('path:created', handlePathCreated);
+      canvas.off('object:modified', handleObjectModified);
       document.removeEventListener('keydown', handleKey);
     };
   }, [canvas, currentTool, color, strokeWidth, eraserSize, isViewer, socket, roomId]);
@@ -174,9 +184,31 @@ const Whiteboard = ({ socket, roomId, role }) => {
     socket.on('whiteboardUpdate', (element) => {
       if (!canvas) return;
       fabric.util.enlivenObjects([element], (objects) => {
-        objects.forEach(obj => canvas.add(obj));
+        objects.forEach(obj => {
+          obj.isFromRemote = true;
+          canvas.add(obj);
+        });
         canvas.renderAll();
       });
+    });
+
+    socket.on('whiteboardObjectModified', ({ element }) => {
+      if (!canvas) return;
+      
+      // Find the existing object by its coordinates and type
+      const objects = canvas.getObjects();
+      const existingObj = objects.find(obj => 
+        obj.type === element.type && 
+        Math.abs(obj.left - element.left) < 5 && 
+        Math.abs(obj.top - element.top) < 5
+      );
+      
+      if (existingObj) {
+        // Update the existing object with new properties
+        existingObj.set(element);
+        existingObj.isFromRemote = true;
+        canvas.renderAll();
+      }
     });
 
     socket.on('whiteboardCleared', () => {
@@ -186,6 +218,7 @@ const Whiteboard = ({ socket, roomId, role }) => {
 
     return () => {
       socket.off('whiteboardUpdate');
+      socket.off('whiteboardObjectModified');
       socket.off('whiteboardCleared');
       socket.off('whiteboardPointerMove');
     };
