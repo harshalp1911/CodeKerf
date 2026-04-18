@@ -126,6 +126,16 @@
 - **Docker Compose** - Multi-container orchestration
 - **Nginx** - Reverse proxy and static file serving
 
+## 📈 Performance Optimizations
+
+- ✅ Alpine Docker images (70-80% smaller)
+- ✅ Redis for Socket.io scaling
+- ✅ Room-based socket isolation
+- ✅ TTL indexes for auto-cleanup
+- 🚧 Container pooling
+- 🚧 Cursor throttling
+- 🚧 Whiteboard action batching 
+
 ## 📁 Project Structure
 
 ```
@@ -205,6 +215,7 @@ NODE_ENV=development
 - **redis**: Redis for session management
 - **python-runner**: Isolated Python execution
 - **cpp-runner**: Isolated C++ execution
+- **java-runner**: Isolated Java execution
 
 ## 🤝 Contributing
 
