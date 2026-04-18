@@ -18,6 +18,7 @@ const passport = require('passport');
 const authRoutes = require('./routes/auth');
 const roomRoutes = require('./routes/rooms');
 const memberRoutes = require('./routes/members');
+const containerPool = require('./services/containerPool');
 
 const app = express();
 const PORT = process.env.PORT || 5002;
@@ -77,15 +78,15 @@ app.post('/api/run', async (req, res) => {
   if (language === 'cpp') {
     fileName  = 'code.cpp';
     imageName = 'cpp-runner:latest';
-    runCmd    = `g++ ${fileName} -o main && timeout 5s ./main < stdin.txt`;
+    runCmd    = `g++ /workspace/${fileName} -o /workspace/main && timeout 5s /workspace/main < /workspace/stdin.txt`;
   } else if (language === 'python') {
     fileName  = 'code.py';
     imageName = 'python-runner:latest';
-    runCmd    = `timeout 5s python3 ${fileName} < stdin.txt`;
+    runCmd    = `timeout 5s python3 /workspace/${fileName} < /workspace/stdin.txt`;
   } else if (language === 'java') {
     fileName  = 'Main.java';
     imageName = 'java-runner:latest';
-    runCmd    = `javac ${fileName} && timeout 5s java Main < stdin.txt`;
+    runCmd    = `cd /workspace && javac ${fileName} && timeout 5s java Main < stdin.txt`;
   } else {
     return res.status(400).json({ stdout:'', stderr:'Unsupported language' });
   }
@@ -96,15 +97,38 @@ app.post('/api/run', async (req, res) => {
     await fs.writeFile(path.join(tmp, fileName), code);
     await fs.writeFile(path.join(tmp, 'stdin.txt'), stdin||'');
 
-    const cmd = [
-      'docker run --rm --network none --memory 128m --cpus 0.5',
-      `-v ${tmp}:/workspace`, imageName,
-      `bash -c "${runCmd}"`
-    ].join(' ');
+    // Try container pool first (fast path)
+    const container = await containerPool.acquire(language);
 
-    console.log('▶️', cmd);
-    const { stdout, stderr } = await exec(cmd, { timeout: 10000 });
-    res.json({ stdout, stderr });
+    if (container) {
+      console.log('🏊 Using pooled container:', container);
+      const result = await containerPool.execute(
+        container,
+        path.join(tmp, fileName), fileName,
+        path.join(tmp, 'stdin.txt'),
+        runCmd
+      );
+      containerPool.release(container);
+      res.json(result);
+    } else {
+      // Fallback: create new container (slow path)
+      console.log('🐳 Pool busy, using docker run for', language);
+      const fallbackRunCmd = language === 'cpp'
+        ? `g++ ${fileName} -o main && timeout 5s ./main < stdin.txt`
+        : language === 'python'
+          ? `timeout 5s python3 ${fileName} < stdin.txt`
+          : `javac ${fileName} && timeout 5s java Main < stdin.txt`;
+
+      const cmd = [
+        'docker run --rm --network none --memory 128m --cpus 0.5',
+        `-v ${tmp}:/workspace`, imageName,
+        `bash -c "${fallbackRunCmd}"`
+      ].join(' ');
+
+      console.log('▶️', cmd);
+      const { stdout, stderr } = await exec(cmd, { timeout: 10000 });
+      res.json({ stdout, stderr });
+    }
   } catch (err) {
     console.error(err);
     res.json({
@@ -338,6 +362,21 @@ io.on('connection', socket => {
   });
 });
 
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, async () => {
   console.log(`🚀 Listening on port ${PORT}`);
+  
+  // Initialize container pool in background (don't block server start)
+  containerPool.init().catch(err => {
+    console.error('⚠️ Container pool init failed (falling back to docker run):', err.message);
+  });
+});
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  await containerPool.shutdown();
+  process.exit(0);
+});
+process.on('SIGINT', async () => {
+  await containerPool.shutdown();
+  process.exit(0);
 });

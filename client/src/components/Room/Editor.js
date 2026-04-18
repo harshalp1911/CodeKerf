@@ -5,6 +5,7 @@ import { python } from '@codemirror/lang-python';
 import { java } from '@codemirror/lang-java';
 import { dracula } from '@uiw/codemirror-theme-dracula';
 import { PlayIcon } from '../../Icons';
+import { getAutocompletionExtension, getLintExtension } from '../../utils/editorExtensions';
 
 const Editor = ({ socket, roomId, role, initialCode, initialLang }) => {
   const [code, setCode] = useState(initialCode || '');
@@ -90,6 +91,13 @@ const Editor = ({ socket, roomId, role, initialCode, initialLang }) => {
       case 'java': return java();
       default: return [];
     }
+  };
+
+  const getExtensions = () => {
+    const exts = [getLanguageExtension()];
+    exts.push(getAutocompletionExtension(language));
+    exts.push(getLintExtension(language));
+    return exts;
   };
 
   const onRun = async () => {
@@ -194,7 +202,7 @@ const Editor = ({ socket, roomId, role, initialCode, initialLang }) => {
             <CodeMirror
               value={code}
               height="100%"
-              extensions={[getLanguageExtension()]}
+              extensions={getExtensions()}
               onChange={handleCodeChange}
               theme={dracula}
               readOnly={isViewer}

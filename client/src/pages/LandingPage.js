@@ -8,6 +8,7 @@ import { dracula } from '@uiw/codemirror-theme-dracula';
 import { useAuth } from '../contexts/AuthContext';
 import { PlayIcon, ShareIcon, SaveIcon, SunIcon, MoonIcon } from '../Icons';
 import LoginModal from '../components/Auth/LoginModal';
+import { getAutocompletionExtension, getLintExtension } from '../utils/editorExtensions';
 
 const LandingPage = ({ darkMode, setDarkMode }) => {
   const { user, token, logout } = useAuth();
@@ -32,6 +33,13 @@ const LandingPage = ({ darkMode, setDarkMode }) => {
       case 'java': return java();
       default: return [];
     }
+  };
+
+  const getExtensions = () => {
+    const exts = [getLanguageExtension()];
+    exts.push(getAutocompletionExtension(language));
+    exts.push(getLintExtension(language));
+    return exts;
   };
 
   const handleCodeChange = useCallback((val) => {
@@ -226,7 +234,7 @@ const LandingPage = ({ darkMode, setDarkMode }) => {
             <CodeMirror
               value={code}
               height="100%"
-              extensions={[getLanguageExtension()]}
+              extensions={getExtensions()}
               onChange={handleCodeChange}
               theme={darkMode ? dracula : 'light'}
               basicSetup={{
