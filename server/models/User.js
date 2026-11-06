@@ -25,4 +25,12 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
   return bcrypt.compare(candidatePassword, this.password);
 };
 
+// Never send the password hash to clients, even if a query forgets to exclude it
+userSchema.set('toJSON', {
+  transform: (_doc, ret) => {
+    delete ret.password;
+    return ret;
+  }
+});
+
 module.exports = mongoose.model('User', userSchema);
