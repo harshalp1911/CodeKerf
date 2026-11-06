@@ -14,11 +14,13 @@ const path = require('path');
 const util = require('util');
 const exec = util.promisify(require('child_process').exec);
 const passport = require('passport');
+const jwt = require('jsonwebtoken');
 
 const authRoutes = require('./routes/auth');
 const roomRoutes = require('./routes/rooms');
 const memberRoutes = require('./routes/members');
 const containerPool = require('./services/containerPool');
+const { JWT_SECRET } = require('./config');
 
 const app = express();
 const PORT = process.env.PORT || 5002;
@@ -152,160 +154,191 @@ const io = new Server(httpServer, {
   adapter: createAdapter(pubClient, subClient)
 });
 
-// Middleware to verify socket connection
+// Member routes use this to update open tabs when someone's role changes
+app.set('io', io);
+
+const LANGUAGES = ['cpp', 'python', 'java'];
+const EDIT_ROLES = ['owner', 'editor'];
+const MAX_CHAT_LENGTH = 2000;
+const CURSOR_COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899'];
+
+// Identify the user from their token. Sockets without a token stay anonymous and can't use rooms.
 io.use(async (socket, next) => {
+  const token = socket.handshake.auth.token;
+  if (!token) return next();
+
   try {
-    const token = socket.handshake.auth.token;
-    if (!token) return next(); // Allow anonymous for backward compatibility initially
-    
-    const jwt = require('jsonwebtoken');
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_jwt_secret');
-    socket.userId = decoded.id;
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const user = await User.findById(decoded.id).select('name');
+    if (!user) return next(new Error('Authentication error'));
+
+    socket.userId = user._id.toString();
+    socket.userName = user.name;
+    socket.cursorColor = CURSOR_COLORS[parseInt(socket.userId.slice(-2), 16) % CURSOR_COLORS.length];
     next();
   } catch (err) {
     next(new Error('Authentication error'));
   }
 });
 
+// Returns the room ID if this socket has joined `roomId` with one of `roles` (any role when omitted).
+// The role comes from the database at join time, never from the client.
+const allowedRoom = (socket, roomId, roles) => {
+  const current = socket.currentRoomId;
+  if (!socket.userId || !current || String(roomId) !== current) return null;
+  // Member routes remove sockets from the room when access changes, so check it is still joined
+  if (!socket.rooms.has(current)) return null;
+  if (roles && !roles.includes(socket.roomRole)) return null;
+  return current;
+};
+
 io.on('connection', socket => {
   console.log('🔌', socket.id, socket.userId ? `(User: ${socket.userId})` : '(Anonymous)');
 
-  socket.on('joinRoom', async ({ roomId }) => {
-    console.log('🚪 joinRoom:', socket.id, 'userId:', socket.userId, 'roomId:', roomId);
+  // Lets member routes reach every tab this user has open
+  if (socket.userId) socket.join(`user:${socket.userId}`);
+
+  // Wraps async handlers so a bad payload or database error is logged instead of crashing the server
+  const on = (event, handler) => {
+    socket.on(event, async (payload) => {
+      try {
+        await handler(payload || {});
+      } catch (err) {
+        console.error(`❌ ${event} failed:`, err);
+      }
+    });
+  };
+
+  on('joinRoom', async ({ roomId }) => {
+    if (!socket.userId) {
+      return socket.emit('roomError', { message: 'Log in to join rooms.' });
+    }
+    if (!mongoose.isValidObjectId(roomId)) {
+      return socket.emit('roomError', { message: 'Room not found.' });
+    }
+    roomId = String(roomId);
+
+    const [room, membership] = await Promise.all([
+      Room.findById(roomId),
+      RoomMember.findOne({ roomId, userId: socket.userId })
+    ]);
+    if (!room) return socket.emit('roomError', { message: 'Room not found.' });
+    if (!membership) return socket.emit('roomError', { message: 'You are not a member of this room.' });
+
+    if (socket.currentRoomId && socket.currentRoomId !== roomId) {
+      socket.leave(socket.currentRoomId);
+    }
     socket.join(roomId);
-    socket.currentRoomId = roomId; // Track current room
-    
-    // Check if user has permission (if logged in)
-    if (socket.userId) {
-      const membership = await RoomMember.findOne({ roomId, userId: socket.userId });
-      socket.role = membership ? membership.role : 'viewer';
-      console.log('👤 User role assigned:', socket.role, 'membership:', !!membership);
-    } else {
-      socket.role = 'viewer';
-      console.log('👤 Anonymous user, role: viewer');
-    }
-    
-    // Load room state
-    const room = await Room.findById(roomId);
-    if (room) {
-      socket.emit('roomState', { code: room.code, language: room.language, role: socket.role });
-      console.log('📦 Sent roomState to', socket.id);
-    }
+    socket.currentRoomId = roomId;
+    socket.roomRole = membership.role;
+
+    socket.emit('roomState', { code: room.code, language: room.language, role: membership.role });
   });
 
-  socket.on('codeChange', async ({ roomId, code }) => {
-    console.log('📝 codeChange received from', socket.id, 'role:', socket.role, 'roomId:', roomId);
-    
-    // Only editors/owners can change code
-    if (socket.role === 'viewer') {
-      console.log('⚠️ Viewer tried to change code, blocked');
-      return;
-    }
-    
-    // Broadcast to room immediately
-    socket.to(roomId).emit('codeUpdate', code);
-    console.log('📤 Broadcasted codeUpdate to room', roomId);
-    
-    // Persist to DB (could be optimized with Redis caching later)
-    await Room.findByIdAndUpdate(roomId, { code });
+  on('codeChange', async ({ roomId, code }) => {
+    const room = allowedRoom(socket, roomId, EDIT_ROLES);
+    if (!room || typeof code !== 'string') return;
+
+    socket.to(room).emit('codeUpdate', code);
+    await Room.findByIdAndUpdate(room, { code });
   });
 
-  socket.on('languageChange', async ({ roomId, language }) => {
-    if (socket.role === 'viewer') return;
-    
-    socket.to(roomId).emit('languageUpdate', language);
-    await Room.findByIdAndUpdate(roomId, { language });
+  on('languageChange', async ({ roomId, language }) => {
+    const room = allowedRoom(socket, roomId, EDIT_ROLES);
+    if (!room || !LANGUAGES.includes(language)) return;
+
+    socket.to(room).emit('languageUpdate', language);
+    await Room.findByIdAndUpdate(room, { language });
   });
 
-  socket.on('runResult', ({ roomId, stdout, stderr }) => {
-    socket.to(roomId).emit('runResult', { stdout, stderr });
+  on('runResult', ({ roomId, stdout, stderr }) => {
+    const room = allowedRoom(socket, roomId, EDIT_ROLES);
+    if (!room) return;
+
+    socket.to(room).emit('runResult', { stdout: String(stdout ?? ''), stderr: String(stderr ?? '') });
   });
 
   // Whiteboard events
-  socket.on('whiteboardDraw', async ({ roomId, element }) => {
-    if (socket.role === 'viewer') return;
-    
-    socket.to(roomId).emit('whiteboardUpdate', element);
-    
-    // Optimistic persistence
+  on('whiteboardDraw', async ({ roomId, element }) => {
+    const room = allowedRoom(socket, roomId, EDIT_ROLES);
+    if (!room || !element || typeof element !== 'object') return;
+
+    socket.to(room).emit('whiteboardUpdate', element);
     await Whiteboard.updateOne(
-      { roomId },
+      { roomId: room },
       { $push: { elements: element }, updatedAt: new Date() },
       { upsert: true }
     );
   });
 
-  socket.on('whiteboardObjectModified', ({ roomId, element }) => {
-    if (socket.role === 'viewer') return;
-    
-    socket.to(roomId).emit('whiteboardObjectModified', { element });
+  on('whiteboardObjectModified', ({ roomId, element }) => {
+    const room = allowedRoom(socket, roomId, EDIT_ROLES);
+    if (!room || !element || typeof element !== 'object') return;
+
+    socket.to(room).emit('whiteboardObjectModified', { element });
   });
 
-  socket.on('whiteboardClear', async ({ roomId }) => {
-    if (socket.role === 'viewer') return;
-    
-    socket.to(roomId).emit('whiteboardCleared');
-    await Whiteboard.updateOne({ roomId }, { $set: { elements: [], updatedAt: new Date() } });
+  on('whiteboardClear', async ({ roomId }) => {
+    const room = allowedRoom(socket, roomId, EDIT_ROLES);
+    if (!room) return;
+
+    socket.to(room).emit('whiteboardCleared');
+    await Whiteboard.updateOne({ roomId: room }, { $set: { elements: [], updatedAt: new Date() } });
   });
 
-  // Chat events
-  socket.on('sendMessage', async ({ roomId, message }) => {
-    if (!socket.userId) return; // Must be logged in to chat
-    
-    const chatMsg = await ChatMessage.create({
-      roomId,
-      userId: socket.userId,
-      message
-    });
-    
+  // Chat events (any member, including viewers)
+  on('sendMessage', async ({ roomId, message }) => {
+    const room = allowedRoom(socket, roomId);
+    if (!room || typeof message !== 'string') return;
+
+    const text = message.trim();
+    if (!text || text.length > MAX_CHAT_LENGTH) return;
+
+    const chatMsg = await ChatMessage.create({ roomId: room, userId: socket.userId, message: text });
     await chatMsg.populate('userId', 'name avatar');
-    io.to(roomId).emit('newMessage', chatMsg);
+    io.to(room).emit('newMessage', chatMsg);
   });
 
-  socket.on('typing', ({ roomId, userId, userName }) => {
-    socket.to(roomId).emit('userTyping', { userId, userName });
+  // Typing indicators use the server's record of who this is, not names sent by the client
+  on('typing', ({ roomId }) => {
+    const room = allowedRoom(socket, roomId);
+    if (!room) return;
+
+    socket.to(room).emit('userTyping', { userId: socket.userId, userName: socket.userName });
   });
 
-  socket.on('stoppedTyping', ({ roomId, userId }) => {
-    socket.to(roomId).emit('userStoppedTyping', { userId });
+  on('stoppedTyping', ({ roomId }) => {
+    const room = allowedRoom(socket, roomId);
+    if (!room) return;
+
+    socket.to(room).emit('userStoppedTyping', { userId: socket.userId });
   });
 
   // Code editor cursor tracking
-  socket.on('cursorMove', async ({ roomId, line, ch }) => {
-    if (!socket.userId) return;
-    
-    // Assign a color based on userId hash
-    const colors = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899'];
-    const colorIndex = parseInt(socket.userId.slice(-2), 16) % colors.length;
-    
-    const User = require('./models/User');
-    const user = await User.findById(socket.userId).select('name');
-    
-    socket.to(roomId).emit('cursorMove', {
+  on('cursorMove', ({ roomId, line, ch }) => {
+    const room = allowedRoom(socket, roomId);
+    if (!room || !Number.isInteger(line) || !Number.isInteger(ch)) return;
+
+    socket.to(room).emit('cursorMove', {
       userId: socket.userId,
-      userName: user?.name || 'Unknown',
+      userName: socket.userName,
       line,
       ch,
-      color: colors[colorIndex]
+      color: socket.cursorColor
     });
   });
 
   // Whiteboard pointer tracking
-  socket.on('whiteboardPointer', async ({ roomId, x, y }) => {
-    if (!socket.userId) return;
-    
-    const colors = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899'];
-    const colorIndex = parseInt(socket.userId.slice(-2), 16) % colors.length;
-    
-    const User = require('./models/User');
-    const user = await User.findById(socket.userId).select('name');
-    
-    socket.to(roomId).emit('whiteboardPointerMove', {
+  on('whiteboardPointer', ({ roomId, x, y }) => {
+    const room = allowedRoom(socket, roomId);
+    if (!room || !Number.isFinite(x) || !Number.isFinite(y)) return;
+
+    socket.to(room).emit('whiteboardPointerMove', {
       userId: socket.userId,
-      userName: user?.name || 'Unknown',
+      userName: socket.userName,
       x,
       y,
-      color: colors[colorIndex]
+      color: socket.cursorColor
     });
   });
 
@@ -325,7 +358,7 @@ io.on('connection', socket => {
   });
 
   socket.on('disconnect', async () => {
-    console.log('❌ Disconnect:', socket.id, 'userId:', socket.userId, 'roomId:', socket.currentRoomId, 'role:', socket.role);
+    console.log('❌ Disconnect:', socket.id, 'userId:', socket.userId, 'roomId:', socket.currentRoomId, 'role:', socket.roomRole);
     
     // If user was in a room, check if they're the owner
     if (socket.currentRoomId && socket.userId) {
