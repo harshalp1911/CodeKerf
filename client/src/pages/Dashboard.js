@@ -57,6 +57,21 @@ const Dashboard = () => {
     navigate(`/room/${roomId}`);
   };
 
+  const deleteRoom = async (e, room) => {
+    e.stopPropagation(); // the card itself opens the room
+    if (!window.confirm(`Delete "${room.name}" for everyone? Its code, chat and whiteboard will be lost.`)) return;
+    try {
+      const res = await fetch(`/api/rooms/${room._id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Failed to delete room');
+      setRooms(prev => prev.filter(r => r._id !== room._id));
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--text)' }}>
       {/* Header */}
@@ -198,11 +213,25 @@ const Dashboard = () => {
                         </span>
                       </div>
                     </div>
-                    <div style={{
-                      fontSize: '12px', color: 'var(--text)', opacity: 0.6,
-                      display: 'flex', alignItems: 'center', gap: '4px'
-                    }}>
-                      <span>→</span> Click to join
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{
+                        fontSize: '12px', color: 'var(--text)', opacity: 0.6,
+                        display: 'flex', alignItems: 'center', gap: '4px'
+                      }}>
+                        <span>→</span> Click to join
+                      </div>
+                      {room.userRole === 'owner' && (
+                        <button
+                          onClick={(e) => deleteRoom(e, room)}
+                          style={{
+                            padding: '3px 10px', fontSize: '11px', fontWeight: 600, cursor: 'pointer',
+                            background: 'transparent', color: '#ef4444', border: '1px solid #ef4444', borderRadius: '3px'
+                          }}
+                          title="Delete this room for everyone"
+                        >
+                          Delete
+                        </button>
+                      )}
                     </div>
                   </div>
                 );

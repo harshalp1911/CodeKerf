@@ -1,11 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-const ChatPanel = ({ socket, roomId, user }) => {
+const ChatPanel = ({ socket, roomId, user, history }) => {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [typingUsers, setTypingUsers] = useState([]);
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+
+  // The server sends recent messages on every (re)join; replacing the list avoids duplicates
+  useEffect(() => {
+    if (!history) return;
+    setMessages(history);
+    setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'auto' }), 100);
+  }, [history]);
 
   useEffect(() => {
     if (!socket) return;
@@ -48,7 +55,7 @@ const ChatPanel = ({ socket, roomId, user }) => {
     if (!socket) return;
     
     // Emit typing event
-    socket.emit('typing', { roomId, userId: user?._id, userName: user?.name });
+    socket.emit('typing', { roomId });
     
     // Clear previous timeout
     if (typingTimeoutRef.current) {
@@ -57,7 +64,7 @@ const ChatPanel = ({ socket, roomId, user }) => {
     
     // Stop typing after 2 seconds of inactivity
     typingTimeoutRef.current = setTimeout(() => {
-      socket.emit('stoppedTyping', { roomId, userId: user?._id });
+      socket.emit('stoppedTyping', { roomId });
     }, 2000);
   };
 
@@ -66,7 +73,7 @@ const ChatPanel = ({ socket, roomId, user }) => {
     if (!inputValue.trim() || !socket) return;
 
     socket.emit('sendMessage', { roomId, message: inputValue.trim() });
-    socket.emit('stoppedTyping', { roomId, userId: user?._id });
+    socket.emit('stoppedTyping', { roomId });
     setInputValue('');
     
     if (typingTimeoutRef.current) {
@@ -89,7 +96,7 @@ const ChatPanel = ({ socket, roomId, user }) => {
         {messages.map((msg, idx) => {
           const isMine = msg.userId?._id === user?._id;
           return (
-            <div key={idx} style={{
+            <div key={msg._id || idx} style={{
               alignSelf: isMine ? 'flex-end' : 'flex-start',
               maxWidth: '85%',
               background: isMine ? 'var(--btn)' : 'var(--header)',

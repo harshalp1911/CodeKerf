@@ -7,7 +7,7 @@ import Editor from '../components/Room/Editor';
 import Whiteboard from '../components/Whiteboard/Whiteboard';
 import Chat from '../components/Chat/ChatPanel';
 import Members from '../components/Room/MemberList';
-import { ChatIcon, ChevronDownIcon, MinusIcon } from '../components/Whiteboard/WhiteboardIcons';
+import { ChatIcon, MinusIcon } from '../components/Whiteboard/WhiteboardIcons';
 
 const SIDEBAR_WIDTH = 260;
 const CHAT_WIDTH = 340;
@@ -36,7 +36,12 @@ const Room = () => {
   // Members sidebar toggle
   const [membersOpen, setMembersOpen] = useState(true);
 
-  const socketRef = useRef(null);
+  // Kept in state, not a ref, so child components re-render and attach their listeners once it exists
+  const [socket, setSocket] = useState(null);
+  // Latest code, language and chat history the server sent when we joined
+  const [joinState, setJoinState] = useState(null);
+  const [inviteFocus, setInviteFocus] = useState(0);
+  const deletingRef = useRef(false);
 
   // 1. Fetch Room
   useEffect(() => {
@@ -68,10 +73,13 @@ const Room = () => {
       path: '/socket.io',
       auth: { token }
     });
-    socketRef.current = socket;
     socket.on('connect', () => socket.emit('joinRoom', { roomId }));
-    // The server decides our role when we join, so trust it over the value from the REST call
-    socket.on('roomState', ({ role: serverRole }) => setRole(serverRole));
+    // The server decides our role when we join, so trust it over the value from the REST call.
+    // This also arrives after every reconnect, so it catches up on anything we missed.
+    socket.on('roomState', (state) => {
+      setRole(state.role);
+      setJoinState(state);
+    });
     socket.on('roomError', ({ message }) => setError(message));
     socket.on('connect_error', (err) => {
       if (err.message === 'Authentication error') setError('Your session has expired. Please log in again.');
@@ -86,33 +94,49 @@ const Room = () => {
       }
       socket.emit('joinRoom', { roomId });
     });
-    return () => socket.disconnect();
+    socket.on('roomDeleted', ({ message }) => {
+      // The owner who deleted the room is already on their way out, so only warn everyone else
+      if (!deletingRef.current) alert(message);
+      navigate('/dashboard');
+    });
+    setSocket(socket);
+    return () => {
+      socket.disconnect();
+      setSocket(null);
+    };
   }, [roomId, token, loading, error, room, navigate]);
 
   // Unread count
   useEffect(() => {
-    const socket = socketRef.current;
     if (!socket) return;
     const handleMsg = () => {
       if (!chatOpen) setUnreadCount(prev => prev + 1);
     };
     socket.on('newMessage', handleMsg);
     return () => socket.off('newMessage', handleMsg);
-  }, [chatOpen]);
+  }, [socket, chatOpen]);
 
-  // Handle room deletion when owner leaves
-  useEffect(() => {
-    const socket = socketRef.current;
-    if (!socket) return;
-    
-    const handleRoomDeleted = ({ message }) => {
-      alert(message);
+  const deleteRoom = async () => {
+    if (!window.confirm(`Delete "${room.name}" for everyone? Its code, chat and whiteboard will be lost.`)) return;
+    deletingRef.current = true;
+    try {
+      const res = await fetch(`/api/rooms/${roomId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Failed to delete room');
       navigate('/dashboard');
-    };
-    
-    socket.on('roomDeleted', handleRoomDeleted);
-    return () => socket.off('roomDeleted', handleRoomDeleted);
-  }, [navigate]);
+    } catch (err) {
+      deletingRef.current = false;
+      alert(err.message);
+    }
+  };
+
+  // Rooms are invite-only, so "Invite" opens the members panel and focuses the email box
+  const openInvite = () => {
+    setMembersOpen(true);
+    setInviteFocus(n => n + 1);
+  };
 
   // Whiteboard drag
   const onWbDragStart = useCallback((e) => {
@@ -137,15 +161,6 @@ const Room = () => {
     document.addEventListener('touchmove', onMove);
     document.addEventListener('touchend', onUp);
   }, []);
-
-  const copyRoomLink = () => {
-    const link = window.location.href;
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(link).then(() => alert('Room link copied!'));
-    } else {
-      window.prompt('Copy this link:', link);
-    }
-  };
 
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg)', color: 'var(--text)' }}>
@@ -203,25 +218,40 @@ const Room = () => {
           >
             {showWhiteboard ? '✕ Whiteboard' : '🖊 Whiteboard'}
           </button>
+          {role !== 'viewer' && (
+            <button
+              onClick={openInvite}
+              style={{
+                padding: '5px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                background: 'transparent', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: '3px'
+              }}
+              title="Invite someone by email"
+            >
+              ✉ Invite
+            </button>
+          )}
           <button
-            onClick={copyRoomLink}
+            onClick={() => navigate('/dashboard')}
             style={{
               padding: '5px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
               background: 'transparent', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: '3px'
             }}
-            title="Copy room invite link"
-          >
-            🔗 Share
-          </button>
-          <button
-            onClick={() => navigate('/')}
-            style={{
-              padding: '5px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
-              background: 'transparent', color: '#ef4444', border: '1px solid #ef4444', borderRadius: '3px'
-            }}
+            title="Leave the room open for others and go back to your rooms"
           >
             Leave
           </button>
+          {role === 'owner' && (
+            <button
+              onClick={deleteRoom}
+              style={{
+                padding: '5px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
+                background: 'transparent', color: '#ef4444', border: '1px solid #ef4444', borderRadius: '3px'
+              }}
+              title="Delete this room for everyone"
+            >
+              Delete room
+            </button>
+          )}
         </div>
       </header>
 
@@ -235,7 +265,7 @@ const Room = () => {
             transition: isDraggingWb.current ? 'none' : 'width 0.15s ease',
             display: 'flex', flexDirection: 'column', overflow: 'hidden'
           }}>
-            <Editor socket={socketRef.current} roomId={roomId} role={role} initialCode={room.code} initialLang={room.language} />
+            <Editor socket={socket} roomId={roomId} role={role} initialCode={room.code} initialLang={room.language} joinState={joinState} />
           </div>
 
           {/* WB Drag Handle */}
@@ -260,7 +290,7 @@ const Room = () => {
               transition: isDraggingWb.current ? 'none' : 'width 0.15s ease',
               display: 'flex', flexDirection: 'column', overflow: 'hidden'
             }}>
-              <Whiteboard socket={socketRef.current} roomId={roomId} role={role} />
+              <Whiteboard socket={socket} roomId={roomId} role={role} joinState={joinState} />
             </div>
           )}
         </div>
@@ -290,7 +320,7 @@ const Room = () => {
           </button>
           {membersOpen && (
             <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-              <Members roomId={roomId} members={room.members} role={role} token={token} />
+              <Members roomId={roomId} members={room.members} role={role} token={token} inviteFocus={inviteFocus} />
             </div>
           )}
         </div>
@@ -334,7 +364,7 @@ const Room = () => {
             </button>
           </div>
           <div style={{ flex: 1, overflow: 'hidden' }}>
-            <Chat socket={socketRef.current} roomId={roomId} user={user} />
+            <Chat socket={socket} roomId={roomId} user={user} history={joinState?.messages} />
           </div>
         </div>
 

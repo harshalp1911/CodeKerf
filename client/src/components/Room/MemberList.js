@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 const ROLE_COLORS = {
   owner: '#6366f1',
@@ -6,15 +6,21 @@ const ROLE_COLORS = {
   viewer: '#f59e0b'
 };
 
-const MemberList = ({ roomId, members: initialMembers, role, token }) => {
+const MemberList = ({ roomId, members: initialMembers, role, token, inviteFocus }) => {
   const [members, setMembers] = useState(initialMembers || []);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('viewer');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const inviteInputRef = useRef(null);
 
   const isOwnerOrEditor = role === 'owner' || role === 'editor';
   const isOwner = role === 'owner';
+
+  // The room header's Invite button bumps `inviteFocus` to jump to the email box
+  useEffect(() => {
+    if (inviteFocus) inviteInputRef.current?.focus();
+  }, [inviteFocus]);
 
   const handleInvite = async (e) => {
     e.preventDefault();
@@ -147,6 +153,7 @@ const MemberList = ({ roomId, members: initialMembers, role, token }) => {
         <div style={{ padding: '8px', borderTop: '1px solid var(--border)' }}>
           <form onSubmit={handleInvite} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             <input
+              ref={inviteInputRef}
               type="email"
               placeholder="Email to invite..."
               value={inviteEmail}

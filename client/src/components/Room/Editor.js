@@ -7,7 +7,7 @@ import { dracula } from '@uiw/codemirror-theme-dracula';
 import { PlayIcon } from '../../Icons';
 import { getAutocompletionExtension, getLintExtension } from '../../utils/editorExtensions';
 
-const Editor = ({ socket, roomId, role, initialCode, initialLang }) => {
+const Editor = ({ socket, roomId, role, initialCode, initialLang, joinState }) => {
   const [code, setCode] = useState(initialCode || '');
   const [language, setLanguage] = useState(initialLang || 'cpp');
   const [output, setOutput] = useState('');
@@ -21,6 +21,13 @@ const Editor = ({ socket, roomId, role, initialCode, initialLang }) => {
   const cursorDebounceRef = useRef(null);
 
   const isViewer = role === 'viewer';
+
+  // Each (re)join brings the server's latest code, covering edits made while we were disconnected
+  useEffect(() => {
+    if (!joinState) return;
+    setCode(joinState.code);
+    setLanguage(joinState.language);
+  }, [joinState]);
 
   useEffect(() => {
     if (!socket) return;
