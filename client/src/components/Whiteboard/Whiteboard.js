@@ -100,19 +100,66 @@ const Whiteboard = ({ socket, roomId, role, joinState }) => {
   useEffect(() => {
     if (!canvas || isViewer) return;
 
+    const isEraser = currentTool === 'eraser';
+
     if (currentTool === 'pencil') {
       canvas.isDrawingMode = true;
       canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
       canvas.freeDrawingBrush.color = color;
       canvas.freeDrawingBrush.width = parseInt(strokeWidth, 10);
-    } else if (currentTool === 'eraser') {
-      canvas.isDrawingMode = true;
-      canvas.freeDrawingBrush = new fabric.CircleBrush(canvas);
-      canvas.freeDrawingBrush.color = '#ffffff';
-      canvas.freeDrawingBrush.width = parseInt(eraserSize, 10);
     } else {
       canvas.isDrawingMode = false;
     }
+
+    // While erasing, objects can't be grabbed or moved; the eraser does its own hit testing
+    canvas.skipTargetFind = isEraser;
+    canvas.defaultCursor = isEraser ? 'crosshair' : 'default';
+    if (isEraser) {
+      canvas.discardActiveObject();
+      canvas.requestRenderAll();
+    }
+
+    // Stroke eraser: dragging over an object deletes the whole object for everyone. The old eraser
+    // painted white on top, which left the original strokes on the board, still selectable.
+    const radius = Math.round(parseInt(eraserSize, 10) / 2);
+    let lastPoint = null; // set while the mouse is held down
+    const eraseAt = (pointer) => {
+      const nearBox = (obj) => {
+        const box = obj.getBoundingRect();
+        return pointer.x >= box.left - radius && pointer.x <= box.left + box.width + radius &&
+          pointer.y >= box.top - radius && pointer.y <= box.top + box.height + radius;
+      };
+      // Check the actual pixels so passing through the empty corner of a curve's box doesn't erase it
+      canvas.targetFindTolerance = radius;
+      const hits = canvas.getObjects().filter(obj =>
+        nearBox(obj) && !canvas.isTargetTransparent(obj, pointer.x, pointer.y)
+      );
+      canvas.targetFindTolerance = 0;
+      hits.forEach(removeObject);
+    };
+    const handleEraseStart = (e) => {
+      if (!isEraser) return;
+      lastPoint = canvas.getPointer(e.e, true);
+      eraseAt(lastPoint);
+    };
+    // Mouse events arrive in jumps when moving fast, so check points along the whole path
+    // between them; otherwise a quick swipe could skip right over a thin line
+    const handleEraseMove = (e) => {
+      if (!lastPoint) return;
+      const point = canvas.getPointer(e.e, true);
+      const distance = Math.hypot(point.x - lastPoint.x, point.y - lastPoint.y);
+      const steps = Math.max(1, Math.ceil(distance / Math.max(2, radius / 2)));
+      for (let i = 1; i <= steps; i++) {
+        eraseAt({
+          x: lastPoint.x + ((point.x - lastPoint.x) * i) / steps,
+          y: lastPoint.y + ((point.y - lastPoint.y) * i) / steps
+        });
+      }
+      lastPoint = point;
+    };
+    const handleEraseEnd = () => {
+      lastPoint = null;
+    };
 
     // Emit drawing paths when user draws
     const handlePathCreated = (e) => {
@@ -129,6 +176,9 @@ const Whiteboard = ({ socket, roomId, role, joinState }) => {
 
     canvas.on('path:created', handlePathCreated);
     canvas.on('object:modified', handleObjectModified);
+    canvas.on('mouse:down', handleEraseStart);
+    canvas.on('mouse:move', handleEraseMove);
+    canvas.on('mouse:up', handleEraseEnd);
 
     // Delete selected object on keypress (select mode only, not while editing text)
     const handleKey = (e) => {
@@ -144,6 +194,9 @@ const Whiteboard = ({ socket, roomId, role, joinState }) => {
     return () => {
       canvas.off('path:created', handlePathCreated);
       canvas.off('object:modified', handleObjectModified);
+      canvas.off('mouse:down', handleEraseStart);
+      canvas.off('mouse:move', handleEraseMove);
+      canvas.off('mouse:up', handleEraseEnd);
       document.removeEventListener('keydown', handleKey);
     };
   }, [canvas, currentTool, color, strokeWidth, eraserSize, isViewer, socket, roomId, removeObject]);
