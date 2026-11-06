@@ -59,6 +59,17 @@ router.post('/invite', canInvite, async (req, res) => {
   }
 });
 
+// Take the member's open tabs out of the live room. Sockets keep the role they joined with,
+// so they must rejoin to pick up a new role, or stay out if they were removed.
+const refreshLiveAccess = (req, userId, { removed }) => {
+  const io = req.app.get('io');
+  if (!io) return;
+
+  const { roomId } = req.params;
+  io.in(`user:${userId}`).socketsLeave(roomId);
+  io.to(`user:${userId}`).emit('roomAccessChanged', { roomId, removed });
+};
+
 // Update member role (Owner only)
 router.put('/:userId', async (req, res) => {
   try {
@@ -88,6 +99,7 @@ router.put('/:userId', async (req, res) => {
 
     memberToUpdate.role = role;
     await memberToUpdate.save();
+    refreshLiveAccess(req, memberToUpdate.userId, { removed: false });
 
     res.json(memberToUpdate);
   } catch (error) {
@@ -121,6 +133,7 @@ router.delete('/:userId', async (req, res) => {
     if (memberToRemove.role === 'owner') return res.status(400).json({ error: 'Owner cannot be removed' });
 
     await RoomMember.findByIdAndDelete(memberToRemove._id);
+    refreshLiveAccess(req, memberToRemove.userId, { removed: true });
     res.json({ message: 'Member removed successfully' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to remove member' });

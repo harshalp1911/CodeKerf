@@ -70,8 +70,24 @@ const Room = () => {
     });
     socketRef.current = socket;
     socket.on('connect', () => socket.emit('joinRoom', { roomId }));
+    // The server decides our role when we join, so trust it over the value from the REST call
+    socket.on('roomState', ({ role: serverRole }) => setRole(serverRole));
+    socket.on('roomError', ({ message }) => setError(message));
+    socket.on('connect_error', (err) => {
+      if (err.message === 'Authentication error') setError('Your session has expired. Please log in again.');
+    });
+    // An owner changed our role or removed us: rejoin to get the new role, or leave
+    socket.on('roomAccessChanged', ({ roomId: changedRoomId, removed }) => {
+      if (changedRoomId !== roomId) return;
+      if (removed) {
+        alert('You have been removed from this room.');
+        navigate('/dashboard');
+        return;
+      }
+      socket.emit('joinRoom', { roomId });
+    });
     return () => socket.disconnect();
-  }, [roomId, token, loading, error, room]);
+  }, [roomId, token, loading, error, room, navigate]);
 
   // Unread count
   useEffect(() => {
