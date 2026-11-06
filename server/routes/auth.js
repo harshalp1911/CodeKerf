@@ -2,6 +2,7 @@ const express = require('express');
 const passport = require('passport');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { JWT_SECRET } = require('../config');
 const router = express.Router();
 
 // Initialize passport
@@ -34,7 +35,7 @@ router.post('/register', async (req, res) => {
     
     const token = jwt.sign(
       { id: user._id, email: user.email },
-      process.env.JWT_SECRET || 'your_jwt_secret',
+      JWT_SECRET,
       { expiresIn: '7d' }
     );
     
@@ -76,7 +77,7 @@ router.post('/login', async (req, res) => {
     
     const token = jwt.sign(
       { id: user._id, email: user.email },
-      process.env.JWT_SECRET || 'your_jwt_secret',
+      JWT_SECRET,
       { expiresIn: '7d' }
     );
     
@@ -104,7 +105,7 @@ router.get('/google/callback',
     // Generate JWT token
     const token = jwt.sign(
       { id: req.user._id, email: req.user.email },
-      process.env.JWT_SECRET || 'your_jwt_secret',
+      JWT_SECRET,
       { expiresIn: '7d' }
     );
     
@@ -122,7 +123,7 @@ router.get('/me', async (req, res) => {
     }
 
     const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_jwt_secret');
+    const decoded = jwt.verify(token, JWT_SECRET);
     
     const User = require('../models/User');
     const user = await User.findById(decoded.id).select('-__v');
