@@ -100,7 +100,7 @@ router.get('/google',
 );
 
 router.get('/google/callback', 
-  passport.authenticate('google', { session: false, failureRedirect: '/login' }),
+  passport.authenticate('google', { session: false, failureRedirect: '/' }),
   (req, res) => {
     // Generate JWT token
     const token = jwt.sign(

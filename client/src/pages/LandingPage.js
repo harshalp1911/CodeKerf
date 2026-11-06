@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useCallback, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import CodeMirror from '@uiw/react-codemirror';
 import { cpp } from '@codemirror/lang-cpp';
 import { python } from '@codemirror/lang-python';
@@ -8,6 +8,7 @@ import { dracula } from '@uiw/codemirror-theme-dracula';
 import { useAuth } from '../contexts/AuthContext';
 import { PlayIcon, ShareIcon, SaveIcon, SunIcon, MoonIcon } from '../Icons';
 import LoginModal from '../components/Auth/LoginModal';
+import { REDIRECT_KEY } from '../components/Auth/ProtectedRoute';
 import { getAutocompletionExtension, getLintExtension } from '../utils/editorExtensions';
 
 const LandingPage = ({ darkMode, setDarkMode }) => {
@@ -25,6 +26,23 @@ const LandingPage = ({ darkMode, setDarkMode }) => {
   const [joinLink, setJoinLink] = useState('');
 
   const isAuthenticated = !!user;
+  const location = useLocation();
+
+  // A logged-out visit to a protected page sends us here asking for the login modal
+  useEffect(() => {
+    if (location.state?.openLogin && !isAuthenticated) setShowLoginModal(true);
+  }, [location.state, isAuthenticated]);
+
+  // After logging in, go back to the page that asked for it (e.g. a room link)
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let target = null;
+    try {
+      target = sessionStorage.getItem(REDIRECT_KEY);
+      sessionStorage.removeItem(REDIRECT_KEY);
+    } catch (_) { /* storage blocked: stay on the home page */ }
+    if (target) navigate(target, { replace: true });
+  }, [isAuthenticated, navigate]);
 
   const getLanguageExtension = () => {
     switch (language) {
