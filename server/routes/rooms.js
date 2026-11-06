@@ -104,6 +104,13 @@ router.delete('/:id', async (req, res) => {
     await ChatMessage.deleteMany({ roomId: req.params.id });
     await Whiteboard.deleteMany({ roomId: req.params.id });
 
+    // Send everyone who has the room open back to their dashboard
+    const io = req.app.get('io');
+    if (io) {
+      io.to(req.params.id).emit('roomDeleted', { message: 'The owner deleted this room.' });
+      io.in(req.params.id).socketsLeave(req.params.id);
+    }
+
     res.json({ message: 'Room deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: 'Server error' });

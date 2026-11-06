@@ -3,7 +3,9 @@ const mongoose = require('mongoose');
 const TWO_DAYS = 2 * 24 * 60 * 60;
 
 const whiteboardSchema = new mongoose.Schema({
-  roomId: { type: mongoose.Schema.Types.ObjectId, ref: 'Room', required: true },
+  // Unique so two first strokes arriving together share one board. Without it, both upserts
+  // could insert their own document and one of the strokes would be lost.
+  roomId: { type: mongoose.Schema.Types.ObjectId, ref: 'Room', required: true, unique: true },
   elements: { type: Array, default: [] },
   updatedAt: { type: Date, default: Date.now }
 });

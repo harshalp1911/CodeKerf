@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { fabric } from 'fabric';
+import { v4 as uuidv4 } from 'uuid';
 import {
   PencilIcon, EraserIcon, CursorIcon, TextIcon,
   RectIcon, CircleIcon, TriangleIcon, LineIcon, TrashIcon
@@ -18,7 +19,14 @@ const TOOLS = [
 
 const COLORS = ['#000000', '#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ffffff'];
 
-const Whiteboard = ({ socket, roomId, role }) => {
+// Every object gets a stable id so edits and deletes reach the same object for everyone
+const withId = (obj) => {
+  if (!obj.id) obj.id = uuidv4();
+  return obj;
+};
+const serialize = (obj) => obj.toJSON(['id']);
+
+const Whiteboard = ({ socket, roomId, role, joinState }) => {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const [canvas, setCanvas] = useState(null);
@@ -67,6 +75,27 @@ const Whiteboard = ({ socket, roomId, role }) => {
     };
   }, []);
 
+  // Remove an object locally and tell everyone else
+  const removeObject = useCallback((obj) => {
+    if (!canvas || !obj) return;
+    canvas.remove(obj);
+    canvas.renderAll();
+    if (obj.id) socket?.emit('whiteboardObjectRemoved', { roomId, id: obj.id });
+  }, [canvas, socket, roomId]);
+
+  // Viewers can see the board but not draw on, select or move anything
+  useEffect(() => {
+    if (!canvas) return;
+    // Moving a multi-object selection can't be synced yet, so only allow one object at a time
+    canvas.selection = false;
+    canvas.skipTargetFind = isViewer;
+    if (isViewer) {
+      canvas.isDrawingMode = false;
+      canvas.discardActiveObject();
+      canvas.requestRenderAll();
+    }
+  }, [canvas, isViewer]);
+
   // Handle tool changes
   useEffect(() => {
     if (!canvas || isViewer) return;
@@ -88,16 +117,14 @@ const Whiteboard = ({ socket, roomId, role }) => {
     // Emit drawing paths when user draws
     const handlePathCreated = (e) => {
       if (!socket) return;
-      const path = e.path;
-      socket.emit('whiteboardDraw', { roomId, element: path.toJSON() });
+      socket.emit('whiteboardDraw', { roomId, element: serialize(withId(e.path)) });
     };
 
-    // Emit object modifications (text editing, moving, scaling)
+    // Emit object modifications (text editing, moving, scaling). Fabric only fires this for the
+    // local user's own actions, so applying remote updates never echoes back to the server.
     const handleObjectModified = (e) => {
-      if (!socket) return;
-      const obj = e.target;
-      if (obj.isFromRemote) return; // Don't emit changes from remote updates
-      socket.emit('whiteboardObjectModified', { roomId, element: obj.toJSON() });
+      if (!socket || !e.target?.id) return;
+      socket.emit('whiteboardObjectModified', { roomId, element: serialize(e.target) });
     };
 
     canvas.on('path:created', handlePathCreated);
@@ -110,10 +137,7 @@ const Whiteboard = ({ socket, roomId, role }) => {
       if (activeObj && activeObj.isEditing) return;
 
       if ((e.key === 'Delete' || e.key === 'Backspace') && currentTool === 'select') {
-        if (activeObj) {
-          canvas.remove(activeObj);
-          canvas.renderAll();
-        }
+        removeObject(activeObj);
       }
     };
     document.addEventListener('keydown', handleKey);
@@ -122,23 +146,22 @@ const Whiteboard = ({ socket, roomId, role }) => {
       canvas.off('object:modified', handleObjectModified);
       document.removeEventListener('keydown', handleKey);
     };
-  }, [canvas, currentTool, color, strokeWidth, eraserSize, isViewer, socket, roomId]);
+  }, [canvas, currentTool, color, strokeWidth, eraserSize, isViewer, socket, roomId, removeObject]);
 
   // Click-to-delete in select mode
   useEffect(() => {
-    if (!canvas) return;
+    if (!canvas || isViewer) return;
     const handleDblClick = () => {
       if (currentTool !== 'select') return;
       const active = canvas.getActiveObject();
       // Don't delete text objects on double-click (user may want to edit them)
       if (active && !active.isEditing && active.type !== 'i-text') {
-        canvas.remove(active);
-        canvas.renderAll();
+        removeObject(active);
       }
     };
     canvas.on('mouse:dblclick', handleDblClick);
     return () => canvas.off('mouse:dblclick', handleDblClick);
-  }, [canvas, currentTool]);
+  }, [canvas, currentTool, isViewer, removeObject]);
 
   // Track mouse movement on whiteboard
   useEffect(() => {
@@ -146,7 +169,7 @@ const Whiteboard = ({ socket, roomId, role }) => {
 
     const handleMouseMove = (e) => {
       const pointer = canvas.getPointer(e.e);
-      
+
       if (pointerDebounceRef.current) clearTimeout(pointerDebounceRef.current);
       pointerDebounceRef.current = setTimeout(() => {
         socket.emit('whiteboardPointer', {
@@ -161,12 +184,30 @@ const Whiteboard = ({ socket, roomId, role }) => {
     return () => canvas.off('mouse:move', handleMouseMove);
   }, [canvas, socket, roomId, isViewer]);
 
+  // Load the saved board when it opens, and again after every (re)join so nothing missed while
+  // the board was closed or the connection was down is lost
+  useEffect(() => {
+    if (!socket || !canvas || !joinState) return;
+
+    socket.emit('getWhiteboard', { roomId }, ({ elements, error } = {}) => {
+      if (error || !elements) return;
+      fabric.util.enlivenObjects(elements, (objects) => {
+        canvas.clear();
+        canvas.backgroundColor = '#ffffff';
+        objects.forEach(obj => canvas.add(obj));
+        canvas.renderAll();
+      });
+    });
+  }, [socket, canvas, roomId, joinState]);
+
   // Handle socket events
   useEffect(() => {
-    if (!socket) return;
+    if (!socket || !canvas) return;
+
+    const findById = (id) => canvas.getObjects().find(obj => obj.id === id);
 
     // Remote pointer tracking
-    socket.on('whiteboardPointerMove', ({ userId, userName, x, y, color }) => {
+    const handlePointerMove = ({ userId, userName, x, y, color }) => {
       setRemotePointers(prev => {
         const existing = prev.find(p => p.userId === userId);
         if (existing) {
@@ -174,53 +215,63 @@ const Whiteboard = ({ socket, roomId, role }) => {
         }
         return [...prev, { userId, userName, x, y, color }];
       });
-      
+
       // Auto-remove pointer after 3 seconds of inactivity
       setTimeout(() => {
         setRemotePointers(prev => prev.filter(p => p.userId !== userId));
       }, 3000);
-    });
+    };
 
-    socket.on('whiteboardUpdate', (element) => {
-      if (!canvas) return;
-      fabric.util.enlivenObjects([element], (objects) => {
-        objects.forEach(obj => {
-          obj.isFromRemote = true;
-          canvas.add(obj);
-        });
+    const handleUpdate = (element) => {
+      fabric.util.enlivenObjects([element], ([obj]) => {
+        // Skip objects we already have, e.g. if the board finished loading after this was sent
+        if (!obj || findById(obj.id)) return;
+        canvas.add(obj);
         canvas.renderAll();
       });
-    });
+    };
 
-    socket.on('whiteboardObjectModified', ({ element }) => {
-      if (!canvas) return;
-      
-      // Find the existing object by its coordinates and type
-      const objects = canvas.getObjects();
-      const existingObj = objects.find(obj => 
-        obj.type === element.type && 
-        Math.abs(obj.left - element.left) < 5 && 
-        Math.abs(obj.top - element.top) < 5
-      );
-      
-      if (existingObj) {
-        // Update the existing object with new properties
-        existingObj.set(element);
-        existingObj.isFromRemote = true;
+    // Replace the object with the same id, keeping its place in the stacking order
+    const handleModified = ({ element }) => {
+      fabric.util.enlivenObjects([element], ([obj]) => {
+        if (!obj) return;
+        const existing = findById(element.id);
+        if (existing) {
+          const index = canvas.getObjects().indexOf(existing);
+          canvas.remove(existing);
+          canvas.insertAt(obj, index);
+        } else {
+          canvas.add(obj);
+        }
         canvas.renderAll();
-      }
-    });
+      });
+    };
 
-    socket.on('whiteboardCleared', () => {
-      if (!canvas) return;
+    const handleRemoved = ({ id }) => {
+      const existing = findById(id);
+      if (!existing) return;
+      canvas.remove(existing);
+      canvas.renderAll();
+    };
+
+    const handleCleared = () => {
       canvas.clear();
-    });
+      canvas.backgroundColor = '#ffffff';
+      canvas.renderAll();
+    };
+
+    socket.on('whiteboardPointerMove', handlePointerMove);
+    socket.on('whiteboardUpdate', handleUpdate);
+    socket.on('whiteboardObjectModified', handleModified);
+    socket.on('whiteboardObjectRemoved', handleRemoved);
+    socket.on('whiteboardCleared', handleCleared);
 
     return () => {
-      socket.off('whiteboardUpdate');
-      socket.off('whiteboardObjectModified');
-      socket.off('whiteboardCleared');
-      socket.off('whiteboardPointerMove');
+      socket.off('whiteboardPointerMove', handlePointerMove);
+      socket.off('whiteboardUpdate', handleUpdate);
+      socket.off('whiteboardObjectModified', handleModified);
+      socket.off('whiteboardObjectRemoved', handleRemoved);
+      socket.off('whiteboardCleared', handleCleared);
     };
   }, [socket, canvas]);
 
@@ -230,18 +281,18 @@ const Whiteboard = ({ socket, roomId, role }) => {
 
     const handleClick = (opt) => {
       const pointer = canvas.getPointer(opt.e);
-      const textbox = new fabric.IText('Type here', {
+      const textbox = withId(new fabric.IText('Type here', {
         left: pointer.x,
         top: pointer.y,
         fontSize: 18,
         fill: color,
         fontFamily: 'sans-serif',
         editable: true
-      });
+      }));
       canvas.add(textbox);
       canvas.setActiveObject(textbox);
       textbox.enterEditing();
-      socket?.emit('whiteboardDraw', { roomId, element: textbox.toJSON() });
+      socket?.emit('whiteboardDraw', { roomId, element: serialize(textbox) });
       setCurrentTool('select');
     };
     canvas.on('mouse:down', handleClick);
@@ -270,9 +321,10 @@ const Whiteboard = ({ socket, roomId, role }) => {
         break;
       default: return;
     }
+    withId(shape);
     canvas.add(shape);
     canvas.setActiveObject(shape);
-    socket?.emit('whiteboardDraw', { roomId, element: shape.toJSON() });
+    socket?.emit('whiteboardDraw', { roomId, element: serialize(shape) });
   };
 
   const clearCanvas = () => {

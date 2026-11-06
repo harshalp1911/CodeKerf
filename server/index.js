@@ -160,6 +160,10 @@ app.set('io', io);
 const LANGUAGES = ['cpp', 'python', 'java'];
 const EDIT_ROLES = ['owner', 'editor'];
 const MAX_CHAT_LENGTH = 2000;
+const CHAT_HISTORY_LIMIT = 100;
+
+const isElementId = (id) => typeof id === 'string' && id.length > 0 && id.length <= 64;
+const isWhiteboardElement = (element) => !!element && typeof element === 'object' && isElementId(element.id);
 const CURSOR_COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899'];
 
 // Identify the user from their token. Sockets without a token stay anonymous and can't use rooms.
@@ -198,13 +202,16 @@ io.on('connection', socket => {
   // Lets member routes reach every tab this user has open
   if (socket.userId) socket.join(`user:${socket.userId}`);
 
-  // Wraps async handlers so a bad payload or database error is logged instead of crashing the server
+  // Wraps async handlers so a bad payload or database error is logged instead of crashing the server.
+  // `reply` answers events the client sent with a callback, and does nothing otherwise.
   const on = (event, handler) => {
-    socket.on(event, async (payload) => {
+    socket.on(event, async (payload, ack) => {
+      const reply = typeof ack === 'function' ? ack : () => {};
       try {
-        await handler(payload || {});
+        await handler(payload || {}, reply);
       } catch (err) {
         console.error(`❌ ${event} failed:`, err);
+        reply({ error: 'Something went wrong' });
       }
     });
   };
@@ -232,7 +239,17 @@ io.on('connection', socket => {
     socket.currentRoomId = roomId;
     socket.roomRole = membership.role;
 
-    socket.emit('roomState', { code: room.code, language: room.language, role: membership.role });
+    const recentMessages = await ChatMessage.find({ roomId })
+      .sort({ timestamp: -1 })
+      .limit(CHAT_HISTORY_LIMIT)
+      .populate('userId', 'name avatar');
+
+    socket.emit('roomState', {
+      code: room.code,
+      language: room.language,
+      role: membership.role,
+      messages: recentMessages.reverse()
+    });
   });
 
   on('codeChange', async ({ roomId, code }) => {
@@ -258,10 +275,19 @@ io.on('connection', socket => {
     socket.to(room).emit('runResult', { stdout: String(stdout ?? ''), stderr: String(stderr ?? '') });
   });
 
-  // Whiteboard events
+  // Whiteboard events. Every object carries a client-generated `id`, so edits and deletes
+  // can find the exact object instead of guessing by position.
+  on('getWhiteboard', async ({ roomId }, reply) => {
+    const room = allowedRoom(socket, roomId);
+    if (!room) return reply({ error: 'Not in this room' });
+
+    const board = await Whiteboard.findOne({ roomId: room });
+    reply({ elements: board ? board.elements : [] });
+  });
+
   on('whiteboardDraw', async ({ roomId, element }) => {
     const room = allowedRoom(socket, roomId, EDIT_ROLES);
-    if (!room || !element || typeof element !== 'object') return;
+    if (!room || !isWhiteboardElement(element)) return;
 
     socket.to(room).emit('whiteboardUpdate', element);
     await Whiteboard.updateOne(
@@ -271,11 +297,26 @@ io.on('connection', socket => {
     );
   });
 
-  on('whiteboardObjectModified', ({ roomId, element }) => {
+  on('whiteboardObjectModified', async ({ roomId, element }) => {
     const room = allowedRoom(socket, roomId, EDIT_ROLES);
-    if (!room || !element || typeof element !== 'object') return;
+    if (!room || !isWhiteboardElement(element)) return;
 
     socket.to(room).emit('whiteboardObjectModified', { element });
+    await Whiteboard.updateOne(
+      { roomId: room, 'elements.id': element.id },
+      { $set: { 'elements.$': element, updatedAt: new Date() } }
+    );
+  });
+
+  on('whiteboardObjectRemoved', async ({ roomId, id }) => {
+    const room = allowedRoom(socket, roomId, EDIT_ROLES);
+    if (!room || !isElementId(id)) return;
+
+    socket.to(room).emit('whiteboardObjectRemoved', { id });
+    await Whiteboard.updateOne(
+      { roomId: room },
+      { $pull: { elements: { id } }, updatedAt: new Date() }
+    );
   });
 
   on('whiteboardClear', async ({ roomId }) => {
@@ -357,41 +398,10 @@ io.on('connection', socket => {
     socket.emit('initSession', { code: s.code, language: s.language });
   });
 
-  socket.on('disconnect', async () => {
+  // Rooms are only deleted by the owner's explicit delete (DELETE /api/rooms/:id) or the 2-day expiry.
+  // Deleting on disconnect meant a refresh or network blip wiped the room for everyone.
+  socket.on('disconnect', () => {
     console.log('❌ Disconnect:', socket.id, 'userId:', socket.userId, 'roomId:', socket.currentRoomId, 'role:', socket.roomRole);
-    
-    // If user was in a room, check if they're the owner
-    if (socket.currentRoomId && socket.userId) {
-      try {
-        const room = await Room.findById(socket.currentRoomId);
-        
-        // Check if this user is the room owner
-        if (room && room.createdBy.toString() === socket.userId) {
-          console.log('🗑️ Owner disconnected, deleting room:', socket.currentRoomId, 'owner:', socket.userId);
-          
-          // Notify all members BEFORE deleting
-          io.to(socket.currentRoomId).emit('roomDeleted', { 
-            message: 'Room owner has left. This room has been deleted.' 
-          });
-          
-          // Delete all members
-          await RoomMember.deleteMany({ roomId: socket.currentRoomId });
-          
-          // Delete whiteboard data
-          await Whiteboard.deleteOne({ roomId: socket.currentRoomId });
-          
-          // Delete chat messages
-          await ChatMessage.deleteMany({ roomId: socket.currentRoomId });
-          
-          // Delete the room
-          await Room.findByIdAndDelete(socket.currentRoomId);
-          
-          console.log('✅ Room deleted successfully:', socket.currentRoomId);
-        }
-      } catch (err) {
-        console.error('❌ Error deleting room on owner disconnect:', err);
-      }
-    }
   });
 });
 
