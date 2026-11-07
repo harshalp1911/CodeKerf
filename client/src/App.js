@@ -6,6 +6,7 @@ import ProtectedRoute from './components/Auth/ProtectedRoute';
 import LandingPage from './pages/LandingPage';
 import Dashboard from './pages/Dashboard';
 import Room from './pages/Room';
+import SharePage from './pages/SharePage';
 import './App.css';
 
 function App() {
@@ -30,6 +31,7 @@ function App() {
           <Routes>
             <Route path="/" element={<LandingPage darkMode={darkMode} setDarkMode={setDarkMode} />} />
             <Route path="/auth-success" element={<AuthSuccess />} />
+            <Route path="/share/:token" element={<SharePage />} />
 
             <Route element={<ProtectedRoute />}>
               <Route path="/dashboard" element={<Dashboard darkMode={darkMode} setDarkMode={setDarkMode} />} />
