@@ -8,11 +8,13 @@ import { dracula } from '@uiw/codemirror-theme-dracula';
 import { useAuth } from '../contexts/AuthContext';
 import { PlayIcon, ShareIcon, SaveIcon, SunIcon, MoonIcon } from '../Icons';
 import LoginModal from '../components/Auth/LoginModal';
+import ShareModal from '../components/Share/ShareModal';
 import { REDIRECT_KEY } from '../components/Auth/ProtectedRoute';
 import { getAutocompletionExtension, getLintExtension } from '../utils/editorExtensions';
+import useCodeShare from '../hooks/useCodeShare';
 
 const LandingPage = ({ darkMode, setDarkMode }) => {
-  const { user, token, logout } = useAuth();
+  const { user, token, loading: authLoading, logout } = useAuth();
   const navigate = useNavigate();
 
   const [language, setLanguage] = useState('cpp');
@@ -24,8 +26,17 @@ const LandingPage = ({ darkMode, setDarkMode }) => {
   const [showCreateRoom, setShowCreateRoom] = useState(false);
   const [newRoomName, setNewRoomName] = useState('');
   const [joinLink, setJoinLink] = useState('');
+  const [showShareModal, setShowShareModal] = useState(false);
 
   const isAuthenticated = !!user;
+
+  const { share, joinedBy, createShare, stopSharing, sendCode, sendLanguage, sendRunResult } = useCodeShare({
+    token,
+    authLoading,
+    onRemoteCode: setCode,
+    onRemoteLanguage: setLanguage,
+    onRemoteRun: ({ stdout, stderr }) => setOutput(stderr || stdout)
+  });
   const location = useLocation();
 
   // A logged-out visit to a protected page sends us here asking for the login modal
@@ -62,10 +73,12 @@ const LandingPage = ({ darkMode, setDarkMode }) => {
 
   const handleCodeChange = useCallback((val) => {
     setCode(val);
-  }, []);
+    sendCode(val);
+  }, [sendCode]);
 
   const handleLanguageChange = (e) => {
     setLanguage(e.target.value);
+    sendLanguage(e.target.value);
   };
 
   const onRun = async () => {
@@ -80,6 +93,7 @@ const LandingPage = ({ darkMode, setDarkMode }) => {
       if (!res.ok) throw new Error(await res.text());
       const { stdout, stderr } = await res.json();
       setOutput(stderr || stdout);
+      sendRunResult({ stdout, stderr });
     } catch (err) {
       setOutput(`Error: ${err.message}`);
     } finally {
@@ -99,18 +113,6 @@ const LandingPage = ({ darkMode, setDarkMode }) => {
     a.remove();
   };
 
-  const onShare = useCallback(() => {
-    if (!isAuthenticated) {
-      setShowLoginModal(true);
-      return;
-    }
-    const url = window.location.href;
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(url).then(() => alert('Link copied!'));
-    } else {
-      window.prompt('Copy this link:', url);
-    }
-  }, [isAuthenticated]);
 
   const onCreateRoom = async (e) => {
     e.preventDefault();
@@ -181,14 +183,12 @@ const LandingPage = ({ darkMode, setDarkMode }) => {
             Join Room
           </button>
 
-          <button className="share-button" onClick={onShare}
-            style={{
-              opacity: isAuthenticated ? 1 : 0.4,
-              cursor: isAuthenticated ? 'pointer' : 'not-allowed'
-            }}
-            title={isAuthenticated ? 'Share code' : 'Login to share'}
+          <button
+            className="share-button"
+            onClick={() => setShowShareModal(true)}
+            title={share ? 'You are sharing this code' : 'Share a one-time link to this code'}
           >
-            <ShareIcon size={14} /> Share
+            <ShareIcon size={14} /> {share ? 'Sharing' : 'Share'}
           </button>
 
           <button className="save-button" onClick={onSave}>
@@ -288,6 +288,18 @@ const LandingPage = ({ darkMode, setDarkMode }) => {
       {/* Login Modal */}
       {showLoginModal && (
         <LoginModal onClose={() => setShowLoginModal(false)} />
+      )}
+
+      {showShareModal && (
+        <ShareModal
+          isAuthenticated={isAuthenticated}
+          share={share}
+          joinedBy={joinedBy}
+          onCreate={(role) => createShare(role, code, language)}
+          onStop={stopSharing}
+          onLogin={() => { setShowShareModal(false); setShowLoginModal(true); }}
+          onClose={() => setShowShareModal(false)}
+        />
       )}
 
       {/* Create Room Modal */}
