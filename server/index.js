@@ -19,8 +19,10 @@ const jwt = require('jsonwebtoken');
 const authRoutes = require('./routes/auth');
 const roomRoutes = require('./routes/rooms');
 const memberRoutes = require('./routes/members');
+const shareRoutes = require('./routes/shares');
 const containerPool = require('./services/containerPool');
 const { JWT_SECRET } = require('./config');
+const { isGuestKey } = require('./utils/identity');
 
 const app = express();
 const PORT = process.env.PORT || 5002;
@@ -45,16 +47,7 @@ const Room = require('./models/Room');
 const RoomMember = require('./models/RoomMember');
 const ChatMessage = require('./models/ChatMessage');
 const Whiteboard = require('./models/Whiteboard');
-
-// TTL session schema
-const sessionSchema = new mongoose.Schema({
-  sessionId: { type: String, unique: true },
-  language:  String,
-  code:      String,
-  updatedAt: Date
-});
-sessionSchema.index({ updatedAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
-const Session = mongoose.model('Session', sessionSchema);
+const Share = require('./models/Share');
 
 // ── 2) MIDDLEWARE & ROUTES ──────────────────────────────────────────────────
 app.use(cors({
@@ -68,6 +61,7 @@ app.use(passport.initialize());
 app.use('/api/auth', authRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/rooms/:roomId/members', memberRoutes);
+app.use('/api/shares', shareRoutes);
 
 // ── 3) REST ───────────────────────────────────────────────────────────────
 app.get('/', (_req, res) => res.json({ status: 'ok', service: 'CodeKerf API', version: '1.0.0' }));
@@ -166,9 +160,15 @@ const isElementId = (id) => typeof id === 'string' && id.length > 0 && id.length
 const isWhiteboardElement = (element) => !!element && typeof element === 'object' && isElementId(element.id);
 const CURSOR_COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899'];
 
+const MAX_CODE_LENGTH = 100 * 1024;
+const INVALID_LINK = 'This link is no longer valid.';
+
 // Identify the user from their token. Sockets without a token stay anonymous and can't use rooms.
 io.use(async (socket, next) => {
-  const token = socket.handshake.auth.token;
+  const { token, guestKey } = socket.handshake.auth;
+  // Guests are recognised by a random key their browser keeps; only share links use it
+  if (isGuestKey(guestKey)) socket.guestKey = guestKey;
+  socket.cursorColor = CURSOR_COLORS[0];
   if (!token) return next();
 
   try {
@@ -194,6 +194,20 @@ const allowedRoom = (socket, roomId, roles) => {
   if (!socket.rooms.has(current)) return null;
   if (roles && !roles.includes(socket.roomRole)) return null;
   return current;
+};
+
+// Code editing works the same in rooms and share links. Returns where to broadcast and how to
+// save, if this socket may act on `id` (a room id or a share token) with one of `roles`.
+const liveTarget = (socket, id, roles) => {
+  const room = allowedRoom(socket, id, roles);
+  if (room) {
+    return { channel: room, save: (fields) => Room.findByIdAndUpdate(room, fields) };
+  }
+
+  const share = socket.share;
+  if (!share || String(id) !== share.token || !socket.rooms.has(share.channel)) return null;
+  if (roles && !roles.includes(share.role)) return null;
+  return { channel: share.channel, save: (fields) => Share.updateOne({ _id: share.id }, fields) };
 };
 
 io.on('connection', socket => {
@@ -252,27 +266,74 @@ io.on('connection', socket => {
     });
   });
 
-  on('codeChange', async ({ roomId, code }) => {
-    const room = allowedRoom(socket, roomId, EDIT_ROLES);
-    if (!room || typeof code !== 'string') return;
+  // Open a share link. The owner can always reopen it; anyone else claims it, and once it is
+  // claimed only that same person (account for editor links, browser for viewer links) gets in.
+  on('joinShare', async ({ token }) => {
+    const fail = (code, message) => socket.emit('shareError', { code, message });
+    if (typeof token !== 'string' || token.length > 64) return fail('INVALID', INVALID_LINK);
 
-    socket.to(room).emit('codeUpdate', code);
-    await Room.findByIdAndUpdate(room, { code });
+    const share = await Share.findOne({ token, expiresAt: { $gt: new Date() } });
+    if (!share) return fail('INVALID', INVALID_LINK);
+
+    const isOwner = (socket.userId && String(share.ownerUserId) === socket.userId) ||
+      (socket.guestKey && share.ownerGuestKey === socket.guestKey);
+
+    let role = 'owner';
+    if (!isOwner) {
+      if (share.role === 'editor' && !socket.userId) {
+        return fail('LOGIN_REQUIRED', 'Log in to open this editor link.');
+      }
+      const claimant = share.role === 'editor'
+        ? `user:${socket.userId}`
+        : socket.guestKey && `guest:${socket.guestKey}`;
+      if (!claimant) return fail('INVALID', INVALID_LINK);
+
+      // Claim in one atomic update, so if two people open the link at the same moment,
+      // only one of them gets it
+      const claimed = share.claimedBy === claimant ||
+        await Share.findOneAndUpdate({ _id: share._id, claimedBy: null }, { claimedBy: claimant });
+      if (!claimed) return fail('INVALID', INVALID_LINK);
+      role = share.role;
+    }
+
+    const channel = `share:${share._id}`;
+    if (socket.share && socket.share.channel !== channel) socket.leave(socket.share.channel);
+    socket.join(channel);
+    socket.share = { id: share._id.toString(), token, channel, role };
+
+    if (role !== 'owner') {
+      socket.to(channel).emit('shareJoined', { role, name: socket.userName || 'A guest' });
+    }
+    socket.emit('shareState', {
+      code: share.code,
+      language: share.language,
+      role,
+      linkRole: share.role,
+      claimed: role !== 'owner' || !!share.claimedBy
+    });
+  });
+
+  on('codeChange', async ({ roomId, code }) => {
+    const target = liveTarget(socket, roomId, EDIT_ROLES);
+    if (!target || typeof code !== 'string' || code.length > MAX_CODE_LENGTH) return;
+
+    socket.to(target.channel).emit('codeUpdate', code);
+    await target.save({ code });
   });
 
   on('languageChange', async ({ roomId, language }) => {
-    const room = allowedRoom(socket, roomId, EDIT_ROLES);
-    if (!room || !LANGUAGES.includes(language)) return;
+    const target = liveTarget(socket, roomId, EDIT_ROLES);
+    if (!target || !LANGUAGES.includes(language)) return;
 
-    socket.to(room).emit('languageUpdate', language);
-    await Room.findByIdAndUpdate(room, { language });
+    socket.to(target.channel).emit('languageUpdate', language);
+    await target.save({ language });
   });
 
   on('runResult', ({ roomId, stdout, stderr }) => {
-    const room = allowedRoom(socket, roomId, EDIT_ROLES);
-    if (!room) return;
+    const target = liveTarget(socket, roomId, EDIT_ROLES);
+    if (!target) return;
 
-    socket.to(room).emit('runResult', { stdout: String(stdout ?? ''), stderr: String(stderr ?? '') });
+    socket.to(target.channel).emit('runResult', { stdout: String(stdout ?? ''), stderr: String(stderr ?? '') });
   });
 
   // Whiteboard events. Every object carries a client-generated `id`, so edits and deletes
@@ -357,12 +418,12 @@ io.on('connection', socket => {
 
   // Code editor cursor tracking
   on('cursorMove', ({ roomId, line, ch }) => {
-    const room = allowedRoom(socket, roomId);
-    if (!room || !Number.isInteger(line) || !Number.isInteger(ch)) return;
+    const target = liveTarget(socket, roomId);
+    if (!target || !Number.isInteger(line) || !Number.isInteger(ch)) return;
 
-    socket.to(room).emit('cursorMove', {
-      userId: socket.userId,
-      userName: socket.userName,
+    socket.to(target.channel).emit('cursorMove', {
+      userId: socket.userId || socket.id,
+      userName: socket.userName || 'Guest',
       line,
       ch,
       color: socket.cursorColor
@@ -381,21 +442,6 @@ io.on('connection', socket => {
       y,
       color: socket.cursorColor
     });
-  });
-
-  // Backward compatibility for old session mechanism during transition
-  socket.on('joinSession', async sessionId => {
-    socket.join(sessionId);
-    let s = await Session.findOne({ sessionId });
-    if (!s) {
-      s = await Session.create({
-        sessionId,
-        language: 'cpp',
-        code:     '',
-        updatedAt: new Date()
-      });
-    }
-    socket.emit('initSession', { code: s.code, language: s.language });
   });
 
   // Rooms are only deleted by the owner's explicit delete (DELETE /api/rooms/:id) or the 2-day expiry.
