@@ -7,12 +7,6 @@ const { createServer } = require('http');
 const { Server } = require('socket.io');
 const { createAdapter } = require('@socket.io/redis-adapter');
 const { createClient } = require('redis');
-const { v4: uuidv4 } = require('uuid');
-const fs   = require('fs').promises;
-const os   = require('os');
-const path = require('path');
-const util = require('util');
-const exec = util.promisify(require('child_process').exec);
 const passport = require('passport');
 const jwt = require('jsonwebtoken');
 
@@ -21,11 +15,16 @@ const roomRoutes = require('./routes/rooms');
 const memberRoutes = require('./routes/members');
 const shareRoutes = require('./routes/shares');
 const containerPool = require('./services/containerPool');
+const { LANGUAGES: RUN_LANGUAGES } = containerPool;
+const createRunLimit = require('./middleware/runLimit');
 const { JWT_SECRET } = require('./config');
 const { isGuestKey } = require('./utils/identity');
 
 const app = express();
 const PORT = process.env.PORT || 5002;
+// Behind nginx, req.ip should be the visitor's address from X-Forwarded-For, not nginx's.
+// Only set this when a proxy is in front: otherwise anyone could fake the header.
+if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
 
 // ── 1) MONGO & REDIS ────────────────────────────────────────────────────────
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/online-code-editor';
@@ -36,6 +35,8 @@ mongoose.connect(MONGO_URI)
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 const pubClient = createClient({ url: redisUrl });
 const subClient = pubClient.duplicate();
+
+const runLimit = createRunLimit(pubClient);
 
 Promise.all([pubClient.connect(), subClient.connect()]).then(() => {
   console.log('✅ Rediss connected');
@@ -55,7 +56,8 @@ app.use(cors({
   methods: ['GET','POST','PUT','DELETE'],
   credentials: true
 }));
-app.use(express.json());
+// Above the 100 KB code limit, so oversized code gets a clear message from /api/run instead of a bare 413
+app.use(express.json({ limit: '256kb' }));
 app.use(passport.initialize());
 
 app.use('/api/auth', authRoutes);
@@ -67,72 +69,28 @@ app.use('/api/shares', shareRoutes);
 app.get('/', (_req, res) => res.json({ status: 'ok', service: 'CodeKerf API', version: '1.0.0' }));
 app.get('/api/ping', (_req, res) => res.json({ message: 'pong' }));
 
-app.post('/api/run', async (req, res) => {
-  const { language, code, stdin } = req.body;
-  let fileName, imageName, runCmd;
+const MAX_CODE_LENGTH = 100 * 1024;
+const MAX_STDIN_LENGTH = 64 * 1024;
 
-  if (language === 'cpp') {
-    fileName  = 'code.cpp';
-    imageName = 'cpp-runner:latest';
-    runCmd    = `g++ /workspace/${fileName} -o /workspace/main && timeout 5s /workspace/main < /workspace/stdin.txt`;
-  } else if (language === 'python') {
-    fileName  = 'code.py';
-    imageName = 'python-runner:latest';
-    runCmd    = `timeout 5s python3 /workspace/${fileName} < /workspace/stdin.txt`;
-  } else if (language === 'java') {
-    fileName  = 'Main.java';
-    imageName = 'java-runner:latest';
-    runCmd    = `cd /workspace && javac ${fileName} && timeout 5s java Main < stdin.txt`;
-  } else {
-    return res.status(400).json({ stdout:'', stderr:'Unsupported language' });
+app.post('/api/run', runLimit, async (req, res) => {
+  const { language, code, stdin = '' } = req.body;
+  if (!RUN_LANGUAGES[language]) {
+    return res.status(400).json({ error: 'Unsupported language' });
+  }
+  if (typeof code !== 'string' || code.length > MAX_CODE_LENGTH
+    || typeof stdin !== 'string' || stdin.length > MAX_STDIN_LENGTH) {
+    return res.status(400).json({ error: 'Code must be under 100 KB and input under 64 KB' });
   }
 
-  const tmp = path.join(os.tmpdir(), `code-run-${uuidv4()}`);
   try {
-    await fs.mkdir(tmp);
-    await fs.writeFile(path.join(tmp, fileName), code);
-    await fs.writeFile(path.join(tmp, 'stdin.txt'), stdin||'');
-
-    // Try container pool first (fast path)
-    const container = await containerPool.acquire(language);
-
-    if (container) {
-      console.log('🏊 Using pooled container:', container);
-      const result = await containerPool.execute(
-        container,
-        path.join(tmp, fileName), fileName,
-        path.join(tmp, 'stdin.txt'),
-        runCmd
-      );
-      containerPool.release(container);
-      res.json(result);
-    } else {
-      // Fallback: create new container (slow path)
-      console.log('🐳 Pool busy, using docker run for', language);
-      const fallbackRunCmd = language === 'cpp'
-        ? `g++ ${fileName} -o main && timeout 5s ./main < stdin.txt`
-        : language === 'python'
-          ? `timeout 5s python3 ${fileName} < stdin.txt`
-          : `javac ${fileName} && timeout 5s java Main < stdin.txt`;
-
-      const cmd = [
-        'docker run --rm --network none --memory 128m --cpus 0.5',
-        `-v ${tmp}:/workspace`, imageName,
-        `bash -c "${fallbackRunCmd}"`
-      ].join(' ');
-
-      console.log('▶️', cmd);
-      const { stdout, stderr } = await exec(cmd, { timeout: 10000 });
-      res.json({ stdout, stderr });
+    const result = await containerPool.run(language, code, stdin);
+    if (!result) {
+      return res.status(503).json({ error: 'The server is busy running other code. Please try again in a few seconds.' });
     }
+    res.json(result);
   } catch (err) {
-    console.error(err);
-    res.json({
-      stdout: err.stdout  || '',
-      stderr: err.stderr  || err.message
-    });
-  } finally {
-    await fs.rm(tmp, { recursive: true, force: true }).catch(()=>{/*ignore*/});
+    console.error('Run failed:', err);
+    res.status(500).json({ error: 'Could not run the code. Please try again.' });
   }
 });
 
@@ -160,7 +118,6 @@ const isElementId = (id) => typeof id === 'string' && id.length > 0 && id.length
 const isWhiteboardElement = (element) => !!element && typeof element === 'object' && isElementId(element.id);
 const CURSOR_COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899'];
 
-const MAX_CODE_LENGTH = 100 * 1024;
 const INVALID_LINK = 'This link is no longer valid.';
 
 // Identify the user from their token. Sockets without a token stay anonymous and can't use rooms.
@@ -456,7 +413,7 @@ httpServer.listen(PORT, async () => {
   
   // Initialize container pool in background (don't block server start)
   containerPool.init().catch(err => {
-    console.error('⚠️ Container pool init failed (falling back to docker run):', err.message);
+    console.error('⚠️ Container pool init failed:', err.message);
   });
 });
 

@@ -18,6 +18,8 @@ services:
     environment:
       - MONGO_URI=mongodb://mongo:27017/online-code-editor
       - REDIS_URL=redis://redis:6379
+      # Requests reach the server through the client's nginx, which adds X-Forwarded-For
+      - TRUST_PROXY=1
     ports:
       - "5001:5002"
     depends_on:
