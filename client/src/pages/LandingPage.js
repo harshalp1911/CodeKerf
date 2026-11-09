@@ -12,6 +12,7 @@ import ShareModal from '../components/Share/ShareModal';
 import { REDIRECT_KEY } from '../components/Auth/ProtectedRoute';
 import { getAutocompletionExtension, getLintExtension } from '../utils/editorExtensions';
 import useCodeShare from '../hooks/useCodeShare';
+import { runCode, formatRunOutput } from '../utils/runCode';
 
 const LandingPage = ({ darkMode, setDarkMode }) => {
   const { user, token, loading: authLoading, logout } = useAuth();
@@ -35,7 +36,7 @@ const LandingPage = ({ darkMode, setDarkMode }) => {
     authLoading,
     onRemoteCode: setCode,
     onRemoteLanguage: setLanguage,
-    onRemoteRun: ({ stdout, stderr }) => setOutput(stderr || stdout)
+    onRemoteRun: (result) => setOutput(formatRunOutput(result))
   });
   const location = useLocation();
 
@@ -85,14 +86,8 @@ const LandingPage = ({ darkMode, setDarkMode }) => {
     setIsRunning(true);
     setOutput('Running...');
     try {
-      const res = await fetch('/api/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ language, code, stdin })
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const { stdout, stderr } = await res.json();
-      setOutput(stderr || stdout);
+      const { stdout, stderr } = await runCode({ language, code, stdin, token });
+      setOutput(formatRunOutput({ stdout, stderr }));
       sendRunResult({ stdout, stderr });
     } catch (err) {
       setOutput(`Error: ${err.message}`);

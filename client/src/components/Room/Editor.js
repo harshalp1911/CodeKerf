@@ -6,8 +6,11 @@ import { java } from '@codemirror/lang-java';
 import { dracula } from '@uiw/codemirror-theme-dracula';
 import { PlayIcon } from '../../Icons';
 import { getAutocompletionExtension, getLintExtension } from '../../utils/editorExtensions';
+import { runCode, formatRunOutput } from '../../utils/runCode';
+import { useAuth } from '../../contexts/AuthContext';
 
 const Editor = ({ socket, roomId, role, initialCode, initialLang, joinState }) => {
+  const { token } = useAuth();
   const [code, setCode] = useState(initialCode || '');
   const [language, setLanguage] = useState(initialLang || 'cpp');
   const [output, setOutput] = useState('');
@@ -33,8 +36,8 @@ const Editor = ({ socket, roomId, role, initialCode, initialLang, joinState }) =
     if (!socket) return;
     socket.on('codeUpdate', (newCode) => setCode(newCode));
     socket.on('languageUpdate', (newLang) => setLanguage(newLang));
-    socket.on('runResult', ({ stdout, stderr }) => {
-      setOutput(stderr || stdout);
+    socket.on('runResult', (result) => {
+      setOutput(formatRunOutput(result));
       setIsRunning(false);
     });
     
@@ -112,15 +115,8 @@ const Editor = ({ socket, roomId, role, initialCode, initialLang, joinState }) =
     setIsRunning(true);
     setOutput('Running...');
     try {
-      const res = await fetch('/api/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ language, code, stdin })
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const { stdout, stderr } = await res.json();
-      const result = stderr || stdout;
-      setOutput(result);
+      const { stdout, stderr } = await runCode({ language, code, stdin, token });
+      setOutput(formatRunOutput({ stdout, stderr }));
       if (socket) socket.emit('runResult', { roomId, stdout, stderr });
     } catch (err) {
       setOutput(`Error: ${err.message}`);
