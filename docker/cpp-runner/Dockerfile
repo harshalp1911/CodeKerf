@@ -6,8 +6,12 @@ FROM alpine:latest
 # Install GCC and build tools
 RUN apk add --no-cache g++ bash coreutils
 
+# Programs run as this user, not root, so they can't change the compilers or the system
+RUN adduser -D -u 1000 runner && mkdir -p /workspace && chown runner:runner /workspace
+
 # 2. Create a working directory inside the container
 WORKDIR /workspace
+USER runner
 
 # 3. Copy whatever code and stdin file we mount from the host into /workspace
 #    (We will mount a host directory at runtime—no COPY commands needed here.)
