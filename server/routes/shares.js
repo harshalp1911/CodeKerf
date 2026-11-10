@@ -2,13 +2,10 @@ const crypto = require('crypto');
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const Share = require('../models/Share');
-const { JWT_SECRET } = require('../config');
+const { JWT_SECRET, LANGUAGES, MAX_CODE_LENGTH } = require('../config');
 const { isGuestKey } = require('../utils/identity');
 
 const router = express.Router();
-
-const LANGUAGES = ['cpp', 'python', 'java'];
-const MAX_CODE_LENGTH = 100 * 1024;
 
 // Works out who is asking: a logged-in user (Bearer token) or a guest (X-Guest-Key header)
 const identify = (req, res, next) => {

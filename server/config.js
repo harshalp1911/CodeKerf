@@ -14,4 +14,8 @@ if (!JWT_SECRET) {
   JWT_SECRET = DEV_JWT_SECRET;
 }
 
-module.exports = { JWT_SECRET };
+// Code limits shared by /api/run, share links and live editing
+const LANGUAGES = ['cpp', 'python', 'java'];
+const MAX_CODE_LENGTH = 100 * 1024;
+
+module.exports = { JWT_SECRET, LANGUAGES, MAX_CODE_LENGTH };
