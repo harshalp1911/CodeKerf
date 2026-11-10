@@ -1,0 +1,78 @@
+# Runs on every push to main and every pull request. A red check means something broke.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Permissions, rooms, share links and the run rate limit, against real MongoDB and Redis
+  server-tests:
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:6.0
+        ports: ['27017:27017']
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npm test
+        env:
+          TEST_MONGO_URI: mongodb://127.0.0.1:27017/codekerf-test
+          TEST_REDIS_URL: redis://127.0.0.1:6379/15
+
+  # The real Docker sandbox. Only the Python image is built: the C++ and Java images are large,
+  # and the sandbox code being tested is the same for every language.
+  sandbox-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: docker build -t python-runner:latest ../docker/python-runner
+      - run: npm ci
+      - run: npm run test:sandbox
+
+  # Makes sure the React app still compiles
+  client-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+      # With CI=true, Create React App fails the build on lint warnings. A few older warnings
+      # remain, so they're printed in the log without failing the check.
+      - run: npm run build
+        env:
+          CI: false
