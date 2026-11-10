@@ -16,6 +16,9 @@ const RUN_TIMEOUT_MS = 15000; // compile + run; the program itself also gets `ti
 const MAX_OUTPUT = 64 * 1024;
 const RETRY_DELAY_MS = 10000;
 const LABEL = 'codekerf.runner';
+// Each server labels its containers with its own pool ID and only cleans up those, so two servers
+// sharing one Docker (like a test run next to the live stack) don't delete each other's containers
+const POOL_ID = process.env.RUNNER_POOL_ID || 'default';
 
 const LANGUAGES = {
   cpp: {
@@ -37,6 +40,9 @@ const LANGUAGES = {
     cmd: 'javac Main.java && timeout 5s java Main < stdin.txt'
   }
 };
+
+// Removing a container that is already gone or being removed is fine: we only want it gone
+const alreadyRemoved = (err) => /already in progress|No such container/.test(err.message);
 
 // Runs a docker command directly, without a shell in between
 const docker = (args) => new Promise((resolve, reject) => {
@@ -73,13 +79,13 @@ class ContainerPool {
     for (const lang of Object.keys(LANGUAGES)) this._fill(lang);
   }
 
-  // Containers from an earlier server run that stopped before deleting them
+  // Containers from an earlier run of this server that stopped before deleting them
   async _removeLeftovers() {
     try {
-      const ids = (await docker(['ps', '-aq', '--filter', `label=${LABEL}`])).split('\n').filter(Boolean);
+      const ids = (await docker(['ps', '-aq', '--filter', `label=${LABEL}=${POOL_ID}`])).split('\n').filter(Boolean);
       if (ids.length) await docker(['rm', '-f', ...ids]);
     } catch (err) {
-      console.error('⚠️ Could not remove old runner containers:', err.message);
+      if (!alreadyRemoved(err)) console.error('⚠️ Could not remove old runner containers:', err.message);
     }
   }
 
@@ -109,7 +115,7 @@ class ContainerPool {
     await docker([
       'run', '-d',
       '--name', name,
-      '--label', LABEL,
+      '--label', `${LABEL}=${POOL_ID}`,
       '--network', 'none',
       '--memory', '128m',
       '--cpus', '0.5',
@@ -169,7 +175,7 @@ class ContainerPool {
       await docker(['rm', '-f', name]);
     } catch (err) {
       // A run stopped for time or output is already being removed by _exec
-      if (!/already in progress|No such container/.test(err.message)) {
+      if (!alreadyRemoved(err)) {
         console.error(`⚠️ Failed to remove container ${name}:`, err.message);
       }
     }
