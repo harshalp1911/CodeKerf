@@ -1,0 +1,16 @@
+# Keeps these out of the server image.
+# The image installs its own Linux dependencies with `npm ci --omit=dev`, so the local node_modules
+# (built for this machine, with dev tools) must not overwrite them.
+node_modules
+npm-debug.log*
+
+# Secrets reach the container at run time through docker-compose's env_file, never through the image
+.env
+.env.*
+!.env.example
+
+# Not needed to run the server
+tests
+Dockerfile
+.dockerignore
+.DS_Store

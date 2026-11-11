@@ -1,0 +1,16 @@
+# Keeps these out of the client build.
+# The build stage installs its own dependencies with `npm ci` and creates a fresh build,
+# so the local node_modules and build folders are not needed (and node_modules is large).
+node_modules
+build
+npm-debug.log*
+
+# Local settings stay on this machine
+.env
+.env.*
+!.env.example
+
+Dockerfile
+.dockerignore
+README.md
+.DS_Store
