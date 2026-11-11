@@ -1,51 +1,75 @@
-# 🚀 CodeKerf - Real-Time Collaborative Code Editor
+# CodeKerf: Real-Time Collaborative Code Editor
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![Docker](https://img.shields.io/badge/Docker-ready-blue.svg)](https://www.docker.com/) [![Node.js](https://img.shields.io/badge/Node.js-339933?logo=node.js&logoColor=white)](https://nodejs.org/) [![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB)](https://reactjs.org/)
+[![CI](https://github.com/harshalp1911/CodeKerf/actions/workflows/ci.yml/badge.svg)](https://github.com/harshalp1911/CodeKerf/actions/workflows/ci.yml)
 
-**CodeKerf** is a modern, real-time collaborative coding platform that enables multiple developers to code together seamlessly. Built with cutting-edge web technologies, it provides a VS Code-like experience in the browser with advanced collaboration features.
+CodeKerf is a browser-based code editor where you can write and run C++, Python and Java, share your code through a one-time link, and work together in private rooms with live editing, chat and a shared whiteboard.
 
-## ✨ Key Features
+## Features
 
-### 🤝 **Real-Time Collaboration**
-- **Multi-cursor tracking** - See where other users are typing with colored cursors and name labels
-- **Live code synchronization** - Code changes appear instantly across all connected users
-- **Typing indicators** - Know when someone is typing in chat with animated dots
-- **Whiteboard pointer tracking** - See mouse movements on the shared whiteboard
-- **Role-based permissions** - Owner, Editor, and Viewer roles with appropriate access levels
+**Without an account**
+- Write, run and download C++, Python and Java code, with input (stdin) support
+- Share your code through one **viewer link**: whoever opens it first watches your code and its output live, read-only
 
-### 💻 **Advanced Code Editor**
-- **Multi-language support** - C++, Python, and Java with syntax highlighting
-- **Resizable panels** - Drag to adjust editor/output split
-- **Dark theme UI** - Modern, eye-friendly interface
-- **Code execution** - Run code in isolated Docker containers
-- **Real-time output** - See execution results instantly
+**With an account** (email and password, or Google)
+- Share **editor links**: the other person (also logged in) can edit and run the code with you
+- Stop sharing and create a new link at any time
+- Create **rooms** and invite people by email as editors or viewers
+- In a room: live code editing with everyone's cursors, chat with history, and a shared whiteboard (pen, shapes, text, eraser)
+- Change someone's role or remove them, and it applies to their open tab immediately
 
-### 🎨 **Interactive Whiteboard**
-- **Drawing tools** - Pencil, eraser, shapes (rectangle, circle, triangle, line)
-- **Text annotations** - Add and edit text directly on the whiteboard
-- **Color palette** - Multiple colors for drawing and text
-- **Real-time sync** - All drawing actions sync across users
-- **Collaborative editing** - Multiple users can draw simultaneously
+## How it works
 
-### 💬 **Integrated Chat**
-- **Real-time messaging** - Instant chat with all room members
-- **Typing indicators** - See when others are composing messages
-- **Message persistence** - Chat history maintained during session
-- **Floating UI** - Non-intrusive chat panel that doesn't block code
+### Running untrusted code safely
+Every run happens in a Docker container that is used once and then deleted.
 
-### 🔐 **Authentication & Security**
-- **Google OAuth integration** - Sign in with Google account
-- **JWT-based authentication** - Secure token-based auth system
-- **Room-based access control** - Private rooms with invitation system
-- **Auto-room deletion** - Rooms automatically deleted when owner leaves
+- **Fresh container per run.** The server keeps a few containers started ahead of time so runs are fast. Each runs exactly one program and is then deleted, so nothing a program leaves behind (background processes, files, changed tools) can reach the next person's code.
+- **Locked down.** Code runs as a normal user (not root), with no network, no extra kernel permissions, 128 MB of memory, half a CPU, at most 64 processes (fork bombs stop there), and no file over 10 MB.
+- **Hard limits.** A program is stopped after 5 seconds of running (15 seconds including compiling) or 64 KB of output. Stopping means deleting the container, so every process it started ends too.
+- **Rate limited.** Guests get 10 runs a minute (counted by IP address), logged-in users 30 (counted by account). The counters live in Redis, so the limit holds across several servers.
+- **Bounded load.** At most 4 containers per language exist at once. When all are busy, a run waits up to 5 seconds, then gets a "server busy" answer instead of starting more containers.
 
-## 🚀 Quick Start
+### One-time share links
+- Links use a random 128-bit token, never a database ID, so they can't be guessed.
+- **Exactly one person can claim a link.** The claim is a single atomic database update that only succeeds while the link is unclaimed, so when several people open it at the same moment, one gets in. (A test opens one link from 8 sockets at once.)
+- Each person has at most one active link, enforced by unique database indexes, so a double click can't create two.
+- Viewer links are tied to the claimant's browser; editor links to their account. Links expire after 24 hours.
 
-### Prerequisites
-- Docker and Docker Compose
-- Node.js 18+ (for development)
+### Permissions
+- Every socket event checks the sender's room role, read from the database when they join. Nothing the client sends about its own role or identity is trusted.
+- When an owner changes a role or removes someone, the server removes their open connections from the room straight away, so they can't keep editing until they refresh.
+- Each connection's events are processed in the order they arrived, so quick edits are saved in order and the latest code is what's kept.
 
-### Installation
+## Architecture
+
+```
+Browser (React, CodeMirror, Fabric.js, Socket.IO client)
+   │  HTTP + WebSocket
+   ▼
+nginx ── serves the React build, proxies /api and /socket.io
+   │
+   ▼
+Node.js server
+   ├─ app.js       Express: auth, rooms, members, share links, /api/run
+   ├─ sockets.js   Socket.IO: live code, chat, whiteboard, cursors, share links
+   └─ services/containerPool.js ── Docker ──► single-use runner containers
+   │                                          (cpp-runner, python-runner, java-runner)
+   ├─ MongoDB   users, rooms, members, chat, whiteboards, share links
+   └─ Redis     Socket.IO adapter (events across server instances), run rate limit
+```
+
+## Tech stack
+
+| Part | Technology |
+|---|---|
+| Frontend | React 19, CodeMirror 6, Fabric.js 5, Socket.IO client |
+| Backend | Node.js, Express 5, Socket.IO 4, JWT, Passport (Google OAuth) |
+| Data | MongoDB with Mongoose 8, Redis 7 |
+| Code execution | Docker, Alpine-based runner images |
+| Testing and CI | Jest, real MongoDB and Redis, GitHub Actions |
+
+## Getting started
+
+You need Docker with Docker Compose.
 
 1. **Clone the repository**
    ```bash
@@ -53,187 +77,100 @@
    cd CodeKerf
    ```
 
-2. **Set up environment variables**
+2. **Build the runner images** that user code runs in
    ```bash
-   cp server/.env.example server/.env
-   # Edit server/.env with your Google OAuth credentials
+   ./build-runners.sh
    ```
 
-3. **Build and start services**
+3. **Create `server/.env`** and set at least `JWT_SECRET` to a long random string (see [Configuration](#configuration))
+   ```bash
+   cp server/.env.example server/.env
+   ```
+
+4. **Start everything**
    ```bash
    docker-compose up -d --build
    ```
 
-4. **Access the application**
-   - Open your browser at `http://localhost:3000`
-   - Sign in with Google or create an account
-   - Create a room and start collaborating!
+5. Open **http://localhost:3000**
 
-## 🏗️ Architecture
+## Running the tests
 
-**CodeKerf** uses a **monolithic architecture** with containerized services:
+The tests start the real app and talk to it over HTTP and WebSockets, using a real MongoDB and Redis. Docker is replaced by a fake runner, except in the sandbox tests.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    CodeKerf Platform                        │
-├─────────────────────────────────────────────────────────────┤
-│  Frontend (React)                                           │
-│  ├── Real-time Editor (CodeMirror)                         │
-│  ├── Collaborative Whiteboard (Fabric.js)                  │
-│  ├── Chat System                                           │
-│  └── Authentication UI                                      │
-├─────────────────────────────────────────────────────────────┤
-│  Backend (Node.js + Express)                               │
-│  ├── Socket.IO Server (Real-time events)                   │
-│  ├── REST API (Room management, Auth)                      │
-│  ├── JWT Authentication                                     │
-│  └── Google OAuth Integration                              │
-├─────────────────────────────────────────────────────────────┤
-│  Database Layer                                             │
-│  ├── MongoDB (Users, Rooms, Chat, Whiteboard)             │
-│  └── Redis (Session Management)                            │
-├─────────────────────────────────────────────────────────────┤
-│  Code Execution Layer                                       │
-│  ├── Python Runner (Docker Container)                      │
-│  ├── C++ Runner (Docker Container)                         │
-│  └── Java Runner (Docker Container)                        │
-└─────────────────────────────────────────────────────────────┘
+```bash
+docker run -d --name codekerf-test-mongo -p 27017:27017 mongo:6.0
+docker run -d --name codekerf-test-redis -p 6379:6379 redis:7-alpine
+cd server
+npm install
+npm test               # permissions, rooms, share links, run limits
+npm run test:sandbox   # the real Docker sandbox (needs python-runner:latest)
 ```
 
-## 🛠️ Tech Stack
+The tests use the `codekerf-test` database and Redis database 15. To point them elsewhere, set `TEST_MONGO_URI` and `TEST_REDIS_URL`.
 
-### Frontend
-- **React 18** - Modern UI library with hooks
-- **CodeMirror 6** - Advanced code editor with syntax highlighting
-- **Fabric.js** - Interactive whiteboard canvas
-- **Socket.IO Client** - Real-time communication
-- **CSS Variables** - Dynamic theming system
+GitHub Actions runs the server tests, the sandbox tests and a client build on every push and pull request.
 
-### Backend
-- **Node.js** - JavaScript runtime
-- **Express.js** - Web application framework
-- **Socket.IO** - Real-time bidirectional communication
-- **JWT** - JSON Web Token authentication
-- **Google OAuth 2.0** - Social authentication
+## Local development without Docker Compose
 
-### Database
-- **MongoDB** - Document database for application data
-- **Redis** - In-memory store for session management
-- **Mongoose** - MongoDB object modeling
+```bash
+docker run -d -p 27017:27017 mongo:6.0
+docker run -d -p 6379:6379 redis:7-alpine
+./build-runners.sh
 
-### Infrastructure
-- **Docker** - Containerization for code execution
-- **Docker Compose** - Multi-container orchestration
-- **Nginx** - Reverse proxy and static file serving
-
-## 📈 Performance Optimizations
-
-- ✅ Alpine Docker images (70-80% smaller)
-- ✅ Redis for Socket.io scaling
-- ✅ Room-based socket isolation
-- ✅ TTL indexes for auto-cleanup
-- 🚧 Container pooling
-- 🚧 Cursor throttling
-- 🚧 Whiteboard action batching 
-
-## 📁 Project Structure
-
-```
-CodeKerf/
-├── client/                     # React frontend
-│   ├── public/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── Room/          # Room-related components
-│   │   │   ├── Chat/          # Chat system
-│   │   │   └── Whiteboard/    # Whiteboard components
-│   │   ├── pages/             # Main pages
-│   │   ├── context/           # React context providers
-│   │   └── utils/             # Utility functions
-│   └── package.json
-├── server/                     # Node.js backend
-│   ├── models/                # Database models
-│   ├── routes/                # Express routes
-│   ├── middleware/            # Custom middleware
-│   ├── index.js               # Main server file
-│   └── package.json
-├── docker/                     # Docker configurations
-│   ├── cpp-runner/            # C++ execution environment
-│   ├── python-runner/         # Python execution environment
-│   └── java-runner/           # Java execution environment
-├── nginx/                      # Nginx configuration
-├── docker-compose.yml          # Service orchestration
-└── README.md
+cd server && npm install && npm run dev     # API on :5002
+cd client && npm install && npm start       # app on :3000, proxies /api and /socket.io to :5002
 ```
 
-## 🔧 Configuration
+## Configuration
 
-### Environment Variables
+`server/.env`:
 
-Create `server/.env` with the following variables:
+| Variable | Purpose |
+|---|---|
+| `JWT_SECRET` | Signs login tokens. **Required in production**: the server refuses to start without it. |
+| `MONGO_URI` | MongoDB connection (set by docker-compose) |
+| `REDIS_URL` | Redis connection (set by docker-compose) |
+| `CLIENT_URL` | Where the app is served, for CORS and the Google callback (default `http://localhost:3000`) |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional, for Google login |
+| `PORT` | API port (default 5002) |
+| `TRUST_PROXY` | Set to `1` behind nginx so the rate limit sees visitors' real IPs (set by docker-compose) |
 
-```env
-# Database
-MONGO_URI=mongodb://mongo:27017/codekerf
-REDIS_URL=redis://redis:6379
+For Google login, create OAuth credentials in the [Google Cloud Console](https://console.cloud.google.com/) with the redirect URI `http://localhost:3000/api/auth/google/callback`.
 
-# Authentication
-JWT_SECRET=your-super-secret-jwt-key
-GOOGLE_CLIENT_ID=your-google-oauth-client-id
-GOOGLE_CLIENT_SECRET=your-google-oauth-client-secret
+## Project structure
 
-# Server
-PORT=5001
-NODE_ENV=development
+```
+├── client/                  React app
+│   ├── nginx.conf           Serves the build and proxies the API in Docker
+│   └── src/
+│       ├── pages/           Landing page, dashboard, room, share link page
+│       ├── components/      Editor, chat, whiteboard, members, login, share dialog
+│       ├── hooks/           useCodeShare: live sharing from the landing page
+│       └── utils/
+├── server/
+│   ├── index.js             Connects to MongoDB and Redis and starts the server
+│   ├── app.js               Express app and HTTP routes
+│   ├── sockets.js           Socket.IO events
+│   ├── routes/              auth, rooms, members, shares
+│   ├── models/              Mongoose models
+│   ├── middleware/          auth, run rate limit
+│   ├── services/            containerPool (code sandbox), Google login
+│   └── tests/               Jest tests
+├── docker/                  Runner images: cpp-runner, python-runner, java-runner
+├── .github/workflows/       CI
+└── docker-compose.yml
 ```
 
-### Google OAuth Setup
+## Known limitations
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select existing
-3. Enable Google+ API
-4. Create OAuth 2.0 credentials
-5. Add `http://localhost:3000` to authorized origins
-6. Add the credentials to your `.env` file
+- Two people typing in the same place at the same moment can overwrite each other's change; the last edit wins. Merging simultaneous edits would need a CRDT such as Yjs.
+- The server starts runner containers through the host's Docker socket, so a flaw in the server itself would give access to Docker. The runners themselves are locked down as described above.
+- Guests behind one shared IP address (a college or office network) share the guest run limit.
+- Rooms, chat and whiteboards are deleted after 2 days.
 
-## 🚀 Deployment
-
-### Production Deployment
-
-1. **Update environment variables** for production
-2. **Build and deploy**
-   ```bash
-   docker-compose -f docker-compose.prod.yml up -d --build
-   ```
-3. **Configure domain and SSL** (recommended)
-
-### Docker Services
-
-- **client**: React frontend served by Nginx
-- **server**: Node.js backend with Socket.IO
-- **mongo**: MongoDB database
-- **redis**: Redis for session management
-- **python-runner**: Isolated Python execution
-- **cpp-runner**: Isolated C++ execution
-- **java-runner**: Isolated Java execution
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## �‍💻 Author
+## Author
 
 **Harshal Patil**
 - Email: [harshalp0602@gmail.com](mailto:harshalp0602@gmail.com)
 - GitHub: [@harshalp1911](https://github.com/harshalp1911)
----
-
-⭐ **Star this repository if you found it helpful!**
