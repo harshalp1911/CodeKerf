@@ -16,7 +16,7 @@ RUN npm ci --omit=dev
 COPY . .
 
 # 5. Expose server port
-EXPOSE 5001
+EXPOSE 5002
 
 # 6. Start the server
 CMD ["node", "index.js"]
