@@ -81,12 +81,30 @@ const Dashboard = () => {
         justifyContent: 'space-between', alignItems: 'center'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <h1 style={{ fontSize: '20px', fontWeight: 700, margin: 0 }}>CodeKerf</h1>
+          <h1
+            onClick={() => navigate('/')}
+            style={{ fontSize: '20px', fontWeight: 700, margin: 0, cursor: 'pointer' }}
+            title="Back to the editor"
+          >
+            CodeKerf
+          </h1>
           <span style={{ fontSize: '13px', color: 'var(--text)', opacity: 0.5 }}>|</span>
           <span style={{ fontSize: '14px', fontWeight: 500 }}>Welcome, {user?.name?.split(' ')[0]}</span>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button 
+          {/* The editor lives on the home page; without this the dashboard is a dead end */}
+          <button
+            onClick={() => navigate('/')}
+            style={{
+              padding: '7px 16px', background: 'transparent',
+              border: '1px solid var(--border)', cursor: 'pointer',
+              fontSize: '13px', fontWeight: 600, borderRadius: '4px', color: 'var(--text)'
+            }}
+            title="Write and run code without a room"
+          >
+            Editor
+          </button>
+          <button
             onClick={() => setShowCreate(!showCreate)}
             style={{
               padding: '7px 16px', background: showCreate ? 'transparent' : 'var(--btn)',
@@ -156,9 +174,18 @@ const Dashboard = () => {
             }}>
               <div style={{ fontSize: '48px', marginBottom: '16px', opacity: 0.3 }}>📂</div>
               <p style={{ fontSize: '16px', fontWeight: 500, margin: '0 0 8px 0' }}>No rooms yet</p>
-              <p style={{ fontSize: '14px', color: 'var(--text)', opacity: 0.6, margin: 0 }}>
-                Create a room to start collaborating or ask someone to share a room link with you.
+              <p style={{ fontSize: '14px', color: 'var(--text)', opacity: 0.6, margin: '0 0 20px 0' }}>
+                Create a room to start collaborating, or ask a room owner to invite you by email.
               </p>
+              <button
+                onClick={() => navigate('/')}
+                style={{
+                  padding: '9px 20px', background: 'var(--btn)', color: '#fff', border: 'none',
+                  cursor: 'pointer', fontSize: '14px', fontWeight: 600, borderRadius: '4px'
+                }}
+              >
+                Open the editor
+              </button>
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
