@@ -18,15 +18,37 @@ mongoose.connect(MONGO_URI)
   .catch(e => console.error('❌ Mongo error', e));
 
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+// Socket.IO adapter. While Redis is down, its messages wait in the client's queue and go out on reconnect.
 const pubClient = createClient({ url: redisUrl });
 const subClient = pubClient.duplicate();
+// Run limit. With the queue off, its commands fail at once while Redis is down, so the limit lets
+// runs through instead of every /api/run waiting, unanswered, until Redis comes back.
+const limitClient = pubClient.duplicate({ disableOfflineQueue: true });
 
-Promise.all([pubClient.connect(), subClient.connect()]).then(() => {
+// node-redis reconnects on its own and reports an error on every failed attempt (several a
+// second), so log once when Redis goes away and once when it is back
+const watchRedis = (client, name) => {
+  let down = false;
+  client.on('error', (err) => {
+    if (down) return;
+    down = true;
+    console.error(`⚠️ Redis (${name}) unavailable, reconnecting: ${err.message}`);
+  });
+  client.on('ready', () => {
+    if (down) console.log(`✅ Redis (${name}) reconnected`);
+    down = false;
+  });
+};
+watchRedis(pubClient, 'pub');
+watchRedis(subClient, 'sub');
+watchRedis(limitClient, 'run limit');
+
+Promise.all([pubClient.connect(), subClient.connect(), limitClient.connect()]).then(() => {
   console.log('✅ Redis connected');
 });
 
 // ── 2) HTTP & SOCKET.IO ─────────────────────────────────────────────────────
-const app = createApp({ redis: pubClient });
+const app = createApp({ redis: limitClient });
 const httpServer = createServer(app);
 const io = createSocketServer(httpServer, { pubClient, subClient });
 
