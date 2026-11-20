@@ -21,8 +21,10 @@ services:
       - REDIS_URL=redis://redis:6379
       # Requests reach the server through the client's nginx, which adds X-Forwarded-For
       - TRUST_PROXY=1
-    ports:
-      - "5001:5002"
+    # No published port: only nginx may reach the server. A direct connection could send its own
+    # X-Forwarded-For, which TRUST_PROXY would believe, and dodge the per-IP run limit.
+    expose:
+      - "5002"
     depends_on:
       - mongo
       - redis
@@ -37,8 +39,8 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    # No published port: Redis has no password, and anyone reaching it could send fake events
+    # into rooms (through the Socket.IO adapter) or reset run limits. Only the server needs it.
     volumes:
       - redis-data:/data
 
