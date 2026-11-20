@@ -1,0 +1,7 @@
+# Production entry point (used by docker-compose.prod.yml). Caddy gets and renews the HTTPS
+# certificate for DOMAIN by itself, redirects http:// to https://, and forwards everything,
+# WebSockets included, to the client's nginx.
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy client:80
+}

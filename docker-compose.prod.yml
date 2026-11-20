@@ -1,0 +1,43 @@
+# Production additions on top of docker-compose.yml:
+#   DOMAIN=codekerf.example.com docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Caddy is the only thing reachable from the internet (ports 80 and 443), and serves HTTPS.
+# Requests go: visitor -> Caddy -> nginx (client) -> server.
+services:
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN:?Set DOMAIN to the site's domain name}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Keeps the HTTPS certificate across restarts, so Caddy doesn't request a new one each time
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - client
+
+  client:
+    restart: unless-stopped
+    # Only Caddy talks to nginx, so port 3000 isn't published in production
+    ports: !reset []
+
+  server:
+    restart: unless-stopped
+    environment:
+      # Two proxies now sit in front of the server (Caddy, then nginx), so the visitor's IP is
+      # two hops back in X-Forwarded-For. With 1, every guest would look like Caddy and share one run limit.
+      - TRUST_PROXY=2
+
+  mongo:
+    restart: unless-stopped
+
+  redis:
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
+  caddy-config:
